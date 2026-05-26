@@ -1,0 +1,53 @@
+{
+  "name": "homebridge-meaco",
+  "version": "0.0.0",
+  "description": "Homebridge plugin for Meaco air conditioners via Tuya Cloud OpenAPI",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=20",
+    "homebridge": "^1.8.0 || ^2.0.0"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "homebridge",
+    "meaco",
+    "tuya",
+    "air-conditioner",
+    "aircon"
+  ],
+  "peerDependencies": {
+    "homebridge": "^1.8.0 || ^2.0.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-import": "^2.29.0",
+    "homebridge": "^1.8.0",
+    "husky": "^9.0.0",
+    "nock": "^13.5.0",
+    "nodemon": "^3.1.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "watch": "npm run build && npm link && nodemon",
+    "lint": "eslint 'src/**/*.ts' --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "prepare": "husky",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "files": [
+    "dist",
+    "config.schema.json"
+  ]
+}
