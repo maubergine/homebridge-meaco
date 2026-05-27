@@ -26,9 +26,9 @@ const HK_HEATER_COOLER_COOL = 2;
 const HK_HEATER_COOLER_HEAT = 1;
 
 export class AirConditionerAccessory extends BaseAccessory {
-  private readonly profile: CapabilityProfile;
+  protected readonly profile: CapabilityProfile;
   private readonly map: DatapointMap;
-  private readonly poller: Poller;
+  protected readonly poller: Poller;
   private readonly postCommand: PostCommandFn;
   private readonly config: DeviceConfig;
   private previousNonDryMode: string | null = null;
