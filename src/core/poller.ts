@@ -35,7 +35,7 @@ export class Poller {
   }
 
   private async tick(): Promise<void> {
-    if (this.inFlight || this.onTick === null) return;
+    if (this.stopped || this.inFlight || this.onTick === null) return;
     this.inFlight = true;
     try {
       await this.onTick();
