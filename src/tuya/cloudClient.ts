@@ -25,6 +25,7 @@ export class CloudClient {
   private readonly config: CloudClientConfig;
   private readonly baseUrl: string;
   private token: TokenInfo | null = null;
+  private tokenFetchPromise: Promise<string> | null = null;
   private lastRequestMs = 0;
   private readonly minIntervalMs = 200;
 
@@ -61,7 +62,6 @@ export class CloudClient {
     body?: unknown,
     retryOnToken = true,
   ): Promise<T> {
-    await this.pace();
     const token = await this.ensureToken();
     const t = Date.now().toString();
     const nonce = crypto.randomUUID();
@@ -73,6 +73,7 @@ export class CloudClient {
       controller.abort();
     }, this.config.requestTimeoutMs);
 
+    await this.pace();
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}${path}`, {
@@ -108,9 +109,19 @@ export class CloudClient {
   }
 
   private async ensureToken(): Promise<string> {
-    if (this.token !== null && Date.now() < this.token.expiresAt) {
+    if (this.token && Date.now() < this.token.expiresAt) {
       return this.token.accessToken;
     }
+    if (this.tokenFetchPromise) {
+      return this.tokenFetchPromise;
+    }
+    this.tokenFetchPromise = this.fetchNewToken().finally(() => {
+      this.tokenFetchPromise = null;
+    });
+    return this.tokenFetchPromise;
+  }
+
+  private async fetchNewToken(): Promise<string> {
     await this.pace();
     const t = Date.now().toString();
     const nonce = crypto.randomUUID();
@@ -130,9 +141,7 @@ export class CloudClient {
       success: boolean;
       result: { access_token: string; expire_time: number };
     };
-    if (!data.success) {
-      throw new Error('Tuya auth failed');
-    }
+    if (!data.success) throw new Error('Tuya auth failed');
 
     this.token = {
       accessToken: data.result.access_token,
