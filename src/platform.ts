@@ -51,6 +51,7 @@ interface PluginConfig extends PlatformConfig {
 export class MeacoPlatform implements DynamicPlatformPlugin {
   private readonly accessories: Map<string, PlatformAccessory> = new Map();
   private cloudClient: CloudClient | null = null;
+  private readonly pollers: Poller[] = [];
 
   constructor(
     private readonly log: Logger,
@@ -58,6 +59,11 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
     private readonly api: API,
   ) {
     this.api.on('didFinishLaunching', () => { void this.discoverDevices(); });
+    this.api.on('shutdown', () => {
+      for (const poller of this.pollers) {
+        poller.stop();
+      }
+    });
   }
 
   configureAccessory(accessory: PlatformAccessory): void {
@@ -81,6 +87,12 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
 
     for (const deviceCfg of this.config.devices ?? []) {
       await this.setupDevice(deviceCfg, advanced);
+    }
+
+    const stale = [...this.accessories.values()];
+    if (stale.length > 0) {
+      this.log.info(`Removing ${stale.length} stale accessory/accessories`);
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, stale);
     }
   }
 
@@ -110,6 +122,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       );
 
       const poller = new Poller();
+      this.pollers.push(poller);
       const deviceConfig: DeviceConfig = {
         tuya_device_id: rawCfg.tuya_device_id,
         display_name: displayName,

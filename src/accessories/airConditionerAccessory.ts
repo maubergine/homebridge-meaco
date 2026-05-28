@@ -91,12 +91,23 @@ export class AirConditionerAccessory extends BaseAccessory {
       this.previousNonDryMode = (this.stateCache.state['mode'] as string | undefined) ?? null;
       this.stateCache.optimisticSet('mode', 'wet');
       this.stateCache.optimisticSet('switch', true);
-      await this.postCommand(this.config.tuya_device_id, 'mode', 'wet');
-      await this.postCommand(this.config.tuya_device_id, 'switch', true);
+      try {
+        await this.postCommand(this.config.tuya_device_id, 'mode', 'wet');
+        await this.postCommand(this.config.tuya_device_id, 'switch', true);
+      } catch (err) {
+        this.stateCache.revertOptimistic('mode');
+        this.stateCache.revertOptimistic('switch');
+        throw err;
+      }
     } else {
       const restoreMode = this.previousNonDryMode ?? 'cold';
       this.stateCache.optimisticSet('mode', restoreMode);
-      await this.postCommand(this.config.tuya_device_id, 'mode', restoreMode);
+      try {
+        await this.postCommand(this.config.tuya_device_id, 'mode', restoreMode);
+      } catch (err) {
+        this.stateCache.revertOptimistic('mode');
+        throw err;
+      }
     }
   }
 }

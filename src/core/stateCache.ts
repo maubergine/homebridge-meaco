@@ -28,7 +28,9 @@ export class StateCache {
   }
 
   optimisticSet(code: string, value: TuyaValue): void {
-    this.preOptimistic.set(code, this.state[code]);
+    if (!this.preOptimistic.has(code)) {
+      this.preOptimistic.set(code, this.state[code]);
+    }
     this.state[code] = value;
   }
 

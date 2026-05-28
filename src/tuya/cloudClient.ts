@@ -105,6 +105,11 @@ export class CloudClient {
       return this.request<T>(method, path, body, false);
     }
 
+    if (!data.success) {
+      const msg = (data as Record<string, unknown>)['msg'] as string | undefined;
+      throw new Error(`Tuya API error ${data.code ?? 'unknown'}: ${msg ?? 'request failed'}`);
+    }
+
     return data;
   }
 
