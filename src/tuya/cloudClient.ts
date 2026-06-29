@@ -3,8 +3,12 @@ import crypto from 'node:crypto';
 import { TUYA_REGIONS } from '../settings.js';
 import type { TuyaRegion } from '../settings.js';
 import type {
+  TuyaCloudDevice,
   TuyaDeviceInfoResponse,
+  TuyaDeviceListResponse,
+  TuyaDeviceModelResponse,
   TuyaDeviceStatusResponse,
+  TuyaProductFunctionsResponse,
   TuyaSpecResponse,
   TuyaStatusItem,
 } from './types.js';
@@ -48,6 +52,25 @@ export class CloudClient {
 
   async getDeviceInfo(deviceId: string): Promise<TuyaDeviceInfoResponse> {
     return this.request<TuyaDeviceInfoResponse>('GET', `/v1.0/devices/${deviceId}`);
+  }
+
+  async getProductFunctions(productId: string): Promise<TuyaProductFunctionsResponse> {
+    return this.request<TuyaProductFunctionsResponse>('GET', `/v1.0/iot-03/products/${productId}/functions`);
+  }
+
+  async listAllDevices(pageSize = 20, category?: string): Promise<TuyaCloudDevice[]> {
+    const params = new URLSearchParams({ page_size: String(pageSize) });
+    if (category) params.set('categories', category);
+    params.sort();
+    const data = await this.request<TuyaDeviceListResponse>(
+      'GET',
+      `/v2.0/cloud/thing/device?${params}`,
+    );
+    return data.result;
+  }
+
+  async getDeviceModel(deviceId: string): Promise<TuyaDeviceModelResponse> {
+    return this.request<TuyaDeviceModelResponse>('GET', `/v2.0/cloud/thing/${deviceId}/model`);
   }
 
   async postCommand(deviceId: string, code: string, value: boolean | number | string): Promise<void> {

@@ -48,10 +48,14 @@
               "type": "string",
               "required": true
             },
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean",
+              "default": true
+            },
             "display_name": {
               "title": "Display Name",
-              "type": "string",
-              "default": "Air Conditioner"
+              "type": "string"
             },
             "display_type": {
               "title": "Display Type",
@@ -63,23 +67,24 @@
             "temperature_unit": {
               "title": "Temperature Unit",
               "type": "string",
-              "default": "celsius",
-              "enum": ["celsius", "fahrenheit"]
+              "default": "auto",
+              "enum": ["auto", "celsius", "fahrenheit"],
+              "enumNames": ["Auto (from device)", "Celsius", "Fahrenheit"]
             },
             "expose_dry_mode_switch": {
               "title": "Expose Dry Mode Switch",
               "type": "boolean",
-              "default": true
+              "default": false
             },
-            "expose_fan_only_mode_switch": {
-              "title": "Expose Fan-Only Mode Switch",
+            "expose_child_lock": {
+              "title": "Expose Child Lock Switch",
               "type": "boolean",
               "default": true
             },
             "expose_swing_control": {
               "title": "Expose Swing Control",
               "type": "boolean",
-              "default": true,
+              "default": false,
               "condition": {
                 "functionBody": "return model.display_type !== 'thermostat';"
               }
@@ -87,7 +92,7 @@
             "expose_sleep_mode_switch": {
               "title": "Expose Sleep Mode Switch",
               "type": "boolean",
-              "default": false
+              "default": true
             },
             "manufacturer": {
               "title": "Manufacturer",
@@ -96,8 +101,7 @@
             },
             "model": {
               "title": "Model",
-              "type": "string",
-              "default": "MeacoCool MC"
+              "type": "string"
             },
             "polling_interval_seconds": {
               "title": "Polling Interval (seconds)",
@@ -113,6 +117,40 @@
               "minimum": 1,
               "maximum": 10
             },
+            "expose_fan_speed": {
+              "title": "Expose Fan Speed Slider",
+              "type": "boolean",
+              "default": true
+            },
+            "mode_mappings": {
+              "title": "Mode Mappings",
+              "type": "object",
+              "expandable": true,
+              "expanded": false,
+              "properties": {
+                "heat": {
+                  "title": "Heat",
+                  "type": "string",
+                  "default": "Heat",
+                  "enum": ["Heat", "Cool", "Auto", "Fan", "none"],
+                  "enumNames": ["Heat", "Cool", "Auto", "Fan", "None (hidden)"]
+                },
+                "cool": {
+                  "title": "Cool",
+                  "type": "string",
+                  "default": "Cool",
+                  "enum": ["Heat", "Cool", "Auto", "Fan", "none"],
+                  "enumNames": ["Heat", "Cool", "Auto", "Fan", "None (hidden)"]
+                },
+                "auto": {
+                  "title": "Auto",
+                  "type": "string",
+                  "default": "none",
+                  "enum": ["Heat", "Cool", "Auto", "Fan", "none"],
+                  "enumNames": ["Heat", "Cool", "Auto", "Fan", "None (hidden)"]
+                }
+              }
+            },
             "capability_overrides": {
               "title": "Capability Overrides",
               "type": "object",
@@ -122,7 +160,6 @@
                 "has_swing": { "type": "boolean" },
                 "has_sleep": { "type": "boolean" },
                 "has_fan_only": { "type": "boolean" },
-                "has_auto": { "type": "boolean" },
                 "temp_min": { "type": "number" },
                 "temp_max": { "type": "number" }
               }
@@ -162,7 +199,7 @@
   },
   "layout": [
     { "type": "section", "title": "Cloud Credentials", "expandable": false, "items": ["cloud_credentials.tuya_region", "cloud_credentials.tuya_access_key", "cloud_credentials.tuya_secret_key"] },
-    { "type": "section", "title": "Devices", "expandable": false, "items": [{ "key": "devices", "type": "array", "items": ["devices[].tuya_device_id", "devices[].display_name", "devices[].display_type", "devices[].temperature_unit", "devices[].expose_dry_mode_switch", "devices[].expose_fan_only_mode_switch", "devices[].expose_swing_control", "devices[].expose_sleep_mode_switch", "devices[].polling_interval_seconds", "devices[].unresponsive_after_failures"] }] },
+    { "type": "section", "title": "Devices", "expandable": false, "items": [{ "key": "devices", "type": "array", "items": ["devices[].tuya_device_id", "devices[].enabled", "devices[].display_name", "devices[].display_type", "devices[].temperature_unit", "devices[].expose_child_lock", "devices[].expose_swing_control", "devices[].expose_sleep_mode_switch", "devices[].expose_fan_speed", "devices[].expose_dry_mode_switch", "devices[].mode_mappings.heat", "devices[].mode_mappings.cool", "devices[].mode_mappings.auto", "devices[].polling_interval_seconds", "devices[].unresponsive_after_failures"] }] },
     { "type": "section", "title": "Advanced", "expandable": true, "expanded": false, "items": ["advanced_settings.request_timeout_ms", "advanced_settings.max_command_retries", "advanced_settings.command_verify_interval_ms", "advanced_settings.debug_logging"] }
   ]
 }

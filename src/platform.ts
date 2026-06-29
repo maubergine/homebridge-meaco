@@ -1,3 +1,5 @@
+import { readFile, writeFile } from 'node:fs/promises';
+
 import type {
   API,
   DynamicPlatformPlugin,
@@ -9,14 +11,34 @@ import type {
 import { PLATFORM_NAME, PLUGIN_NAME, DEFAULTS } from './settings.js';
 import type { TuyaRegion } from './settings.js';
 import { CloudClient } from './tuya/cloudClient.js';
-import { parseSpecification } from './tuya/specParser.js';
+import { parseSpecification, parseModeRangeFromModel, deriveModeDefaults } from './tuya/specParser.js';
 import { applyOverrides } from './core/capabilityProfile.js';
 import type { CapabilityOverrides } from './core/capabilityProfile.js';
 import { DatapointMap } from './core/datapointMap.js';
 import { StateCache } from './core/stateCache.js';
 import { Poller } from './core/poller.js';
 import { AirConditionerAccessory } from './accessories/airConditionerAccessory.js';
-import type { DeviceConfig } from './accessories/airConditionerAccessory.js';
+import type { DeviceConfig, TuyaChoice } from './accessories/airConditionerAccessory.js';
+
+type DeviceOverride = {
+  tuya_device_id: string;
+  enabled?: boolean;
+  display_name?: string;
+  display_type?: 'heater_cooler' | 'thermostat' | 'fan_only';
+  temperature_unit?: 'celsius' | 'fahrenheit' | 'auto';
+  expose_dry_mode_switch?: boolean;
+  expose_child_lock?: boolean;
+  expose_swing_control?: boolean;
+  expose_sleep_mode_switch?: boolean;
+  expose_fan_speed?: boolean;
+  manufacturer?: string;
+  model?: string;
+  serial_number?: string;
+  polling_interval_seconds?: number;
+  unresponsive_after_failures?: number;
+  capability_overrides?: CapabilityOverrides;
+  mode_mappings?: { heat?: TuyaChoice; cool?: TuyaChoice; auto?: TuyaChoice };
+};
 
 interface PluginConfig extends PlatformConfig {
   cloud_credentials?: {
@@ -24,22 +46,7 @@ interface PluginConfig extends PlatformConfig {
     tuya_access_key?: string;
     tuya_secret_key?: string;
   };
-  devices?: Array<{
-    tuya_device_id: string;
-    display_name?: string;
-    display_type?: 'heater_cooler' | 'thermostat' | 'fan_only';
-    temperature_unit?: 'celsius' | 'fahrenheit';
-    expose_dry_mode_switch?: boolean;
-    expose_fan_only_mode_switch?: boolean;
-    expose_swing_control?: boolean;
-    expose_sleep_mode_switch?: boolean;
-    manufacturer?: string;
-    model?: string;
-    serial_number?: string;
-    polling_interval_seconds?: number;
-    unresponsive_after_failures?: number;
-    capability_overrides?: CapabilityOverrides;
-  }>;
+  devices?: DeviceOverride[];
   advanced_settings?: {
     request_timeout_ms?: number;
     max_command_retries?: number;
@@ -85,8 +92,38 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       requestTimeoutMs: advanced.request_timeout_ms ?? DEFAULTS.requestTimeoutMs,
     });
 
-    for (const deviceCfg of this.config.devices ?? []) {
-      await this.setupDevice(deviceCfg, advanced);
+    const overridesByDeviceId = new Map<string, DeviceOverride>(
+      (this.config.devices ?? []).map(d => [d.tuya_device_id, d]),
+    );
+
+    const discovered = await this.cloudClient.listAllDevices(20, 'kt');
+    this.log.info(`Discovered ${discovered.length} AC device(s) from Tuya.`);
+
+    const newDevices = discovered.filter(d => !overridesByDeviceId.has(d.id));
+    if (newDevices.length > 0) {
+      const client = this.cloudClient!;
+      const newEntries = await Promise.all(newDevices.map(async (d) => {
+        const modelResponse = await client.getDeviceModel(d.id).catch(() => null);
+        const modeRange = modelResponse ? parseModeRangeFromModel(modelResponse.result.model) : [];
+        const { expose_dry_mode_switch } = deriveModeDefaults(modeRange);
+        return {
+          tuya_device_id: d.id,
+          enabled: true,
+          display_name: d.customName || d.name,
+          expose_dry_mode_switch,
+          ...(d.model ? { model: d.model } : {}),
+        };
+      }));
+      await this.persistNewDevices(newEntries);
+    }
+
+    for (const device of discovered) {
+      const overrides = overridesByDeviceId.get(device.id);
+      if (overrides?.enabled === false) {
+        this.log.info(`Skipping disabled device: ${device.name} (${device.id})`);
+        continue;
+      }
+      await this.setupDevice(device.id, overrides, advanced);
     }
 
     const stale = [...this.accessories.values()];
@@ -96,19 +133,57 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
     }
   }
 
+  private async persistNewDevices(entries: Pick<DeviceOverride, 'tuya_device_id' | 'enabled' | 'display_name' | 'expose_dry_mode_switch'>[]): Promise<void> {
+    try {
+      const configPath = this.api.user.configPath();
+      const raw = await readFile(configPath, 'utf-8');
+      const configJson = JSON.parse(raw) as { platforms?: Array<Record<string, unknown>> };
+      const platform = configJson.platforms?.find(p => p['platform'] === PLATFORM_NAME);
+      if (!platform) return;
+      const existing = (platform['devices'] ?? []) as DeviceOverride[];
+      platform['devices'] = [...existing, ...entries];
+      await writeFile(configPath, JSON.stringify(configJson, null, 4));
+      this.log.info(`Added ${entries.length} new device(s) to config: ${entries.map(e => e.tuya_device_id).join(', ')}`);
+    } catch (err) {
+      this.log.warn(`Could not persist new devices to config: ${String(err)}`);
+    }
+  }
+
   private async setupDevice(
-    rawCfg: NonNullable<PluginConfig['devices']>[number],
+    deviceId: string,
+    overrides: DeviceOverride | undefined,
     _advanced: NonNullable<PluginConfig['advanced_settings']>,
   ): Promise<void> {
     const client = this.cloudClient!;
     try {
-      const specResponse = await client.getDeviceSpecification(rawCfg.tuya_device_id);
+      const [infoResponse, specResponse, modelResponse] = await Promise.all([
+        client.getDeviceInfo(deviceId),
+        client.getDeviceSpecification(deviceId),
+        client.getDeviceModel(deviceId).catch(() => null),
+      ]);
       const detected = parseSpecification(specResponse);
-      const profile = applyOverrides(detected, rawCfg.capability_overrides);
+      const profile = applyOverrides(detected, overrides?.capability_overrides);
+
+      const modeRange = modelResponse
+        ? parseModeRangeFromModel(modelResponse.result.model)
+        : [...(profile.hasHeat ? ['Heat'] : []), ...(profile.hasCool ? ['Cool'] : []),
+           ...(profile.hasDry ? ['Dyr'] : []), ...(profile.hasFanOnly ? ['Fan'] : [])];
+      const modeDefaults = deriveModeDefaults(modeRange);
       const map = new DatapointMap(profile);
 
-      const uuid = this.api.hap.uuid.generate(rawCfg.tuya_device_id);
-      const displayName = rawCfg.display_name ?? 'Air Conditioner';
+      const apiDevice = infoResponse.result;
+      const displayName = overrides?.display_name || apiDevice.name || 'Air Conditioner';
+      const manufacturer = overrides?.manufacturer ?? 'Meaco';
+      const model = overrides?.model ?? apiDevice.model ?? apiDevice.product_id;
+      const serialNumber = overrides?.serial_number ?? apiDevice.uuid;
+
+      const cfgUnit = overrides?.temperature_unit ?? 'auto';
+      const detectedUnit = apiDevice.status.find(s => s.code === 'temp_unit_convert')?.value === 'f'
+        ? 'fahrenheit' : 'celsius';
+      const temperatureUnit: 'celsius' | 'fahrenheit' =
+        cfgUnit === 'auto' ? detectedUnit : cfgUnit;
+
+      const uuid = this.api.hap.uuid.generate(deviceId);
 
       let accessory = this.accessories.get(uuid);
       if (!accessory) {
@@ -117,23 +192,38 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       }
       this.accessories.delete(uuid);
 
+      accessory.getService(this.api.hap.Service.AccessoryInformation)!
+        .setCharacteristic(this.api.hap.Characteristic.Manufacturer, manufacturer)
+        .setCharacteristic(this.api.hap.Characteristic.Model, model)
+        .setCharacteristic(this.api.hap.Characteristic.SerialNumber, serialNumber);
+
       const cache = new StateCache(
-        rawCfg.unresponsive_after_failures ?? DEFAULTS.unresponsiveAfterFailures,
+        overrides?.unresponsive_after_failures ?? DEFAULTS.unresponsiveAfterFailures,
       );
 
       const poller = new Poller();
       this.pollers.push(poller);
       const deviceConfig: DeviceConfig = {
-        tuya_device_id: rawCfg.tuya_device_id,
+        tuya_device_id: deviceId,
         display_name: displayName,
-        display_type: rawCfg.display_type ?? 'heater_cooler',
-        temperature_unit: rawCfg.temperature_unit ?? 'celsius',
-        expose_dry_mode_switch: rawCfg.expose_dry_mode_switch ?? true,
-        expose_fan_only_mode_switch: rawCfg.expose_fan_only_mode_switch ?? true,
-        expose_swing_control: rawCfg.expose_swing_control ?? true,
-        expose_sleep_mode_switch: rawCfg.expose_sleep_mode_switch ?? false,
-        polling_interval_seconds: rawCfg.polling_interval_seconds ?? DEFAULTS.pollingIntervalSeconds,
-        unresponsive_after_failures: rawCfg.unresponsive_after_failures ?? DEFAULTS.unresponsiveAfterFailures,
+        manufacturer,
+        model,
+        serial_number: serialNumber,
+        display_type: overrides?.display_type ?? 'heater_cooler',
+        temperature_unit: temperatureUnit,
+        expose_child_lock: overrides?.expose_child_lock ?? true,
+        expose_swing_control: overrides?.expose_swing_control ?? false,
+        expose_sleep_mode_switch: overrides?.expose_sleep_mode_switch ?? true,
+        expose_fan_speed: overrides?.expose_fan_speed ?? true,
+        expose_dry_mode_switch: overrides?.expose_dry_mode_switch ?? modeDefaults.expose_dry_mode_switch,
+        expose_fan_only_mode_switch: modeDefaults.expose_fan_only_mode_switch,
+        mode_mappings: {
+          heat: overrides?.mode_mappings?.heat ?? modeDefaults.mode_mappings.heat,
+          cool: overrides?.mode_mappings?.cool ?? modeDefaults.mode_mappings.cool,
+          auto: overrides?.mode_mappings?.auto ?? modeDefaults.mode_mappings.auto,
+        },
+        polling_interval_seconds: overrides?.polling_interval_seconds ?? DEFAULTS.pollingIntervalSeconds,
+        unresponsive_after_failures: overrides?.unresponsive_after_failures ?? DEFAULTS.unresponsiveAfterFailures,
       };
 
       new AirConditionerAccessory(
@@ -145,11 +235,12 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         poller,
         (id, code, value) => client.postCommand(id, code, value),
         deviceConfig,
+        this.api.hap,
       );
 
       poller.start(deviceConfig.polling_interval_seconds, async () => {
         try {
-          const status = await client.getDeviceStatus(rawCfg.tuya_device_id);
+          const status = await client.getDeviceStatus(deviceId);
           const statusMap: Record<string, boolean | number | string> = {};
           for (const item of status) {
             statusMap[item.code] = item.value as boolean | number | string;
@@ -160,7 +251,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         }
       });
     } catch (err) {
-      this.log.error(`Failed to set up device ${rawCfg.tuya_device_id}: ${String(err)}`);
+      this.log.error(`Failed to set up device ${deviceId}: ${String(err)}`);
     }
   }
 }

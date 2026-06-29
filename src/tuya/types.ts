@@ -57,3 +57,48 @@ export interface TuyaDeviceInfoResponse {
 }
 
 export type TuyaValue = boolean | number | string;
+
+export interface TuyaProductFunctionsResponse {
+  result: {
+    category: string;
+    functions: TuyaFunctionSpec[];
+  };
+  success: boolean;
+  t: number;
+}
+
+export interface TuyaCloudDevice {
+  id: string;
+  name: string;
+  customName: string;
+  model: string;
+  category: string;
+  productId: string;
+  productName: string;
+  isOnline: boolean;
+  uuid: string;
+  icon: string;
+  ip: string;
+  lat: string;
+  lon: string;
+  localKey: string;
+  sub: boolean;
+  timeZone: string;
+  bindSpaceId: string;
+  activeTime: number;
+  createTime: number;
+  updateTime: number;
+}
+
+export interface TuyaDeviceListResponse {
+  result: TuyaCloudDevice[];
+  success: boolean;
+  t: number;
+}
+
+export interface TuyaDeviceModelResponse {
+  result: { model: string };
+  success: boolean;
+  t: number;
+  tid?: string;
+}

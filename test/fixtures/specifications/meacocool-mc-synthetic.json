@@ -4,17 +4,19 @@
     "category": "kt",
     "functions": [
       { "code": "switch", "desc": "Power switch", "name": "Power", "type": "Boolean", "values": "{}" },
-      { "code": "mode", "desc": "Operating mode", "name": "Mode", "type": "Enum", "values": "{\"range\":[\"cold\",\"wet\",\"wind\",\"auto\"]}" },
+      { "code": "mode", "desc": "Operating mode", "name": "Mode", "type": "Enum", "values": "{\"range\":[\"Cool\",\"Dyr\",\"Fan\"]}" },
       { "code": "temp_set", "desc": "Target temperature", "name": "Set Temp", "type": "Integer", "values": "{\"min\":160,\"max\":310,\"scale\":1,\"step\":5,\"unit\":\"℃\"}" },
+      { "code": "fan_speed_enum", "desc": "Fan speed", "name": "Fan Speed Enum", "type": "Enum", "values": "{\"range\":[\"low\",\"high\"]}" },
       { "code": "windspeed", "desc": "Fan speed", "name": "Fan Speed", "type": "Enum", "values": "{\"range\":[\"low\",\"mid\",\"high\",\"auto\"]}" },
       { "code": "swing", "desc": "Swing mode", "name": "Swing", "type": "Boolean", "values": "{}" },
       { "code": "sleep", "desc": "Sleep mode", "name": "Sleep", "type": "Boolean", "values": "{}" }
     ],
     "status": [
       { "code": "switch", "desc": "Power switch", "name": "Power", "type": "Boolean", "values": "{}" },
-      { "code": "mode", "desc": "Operating mode", "name": "Mode", "type": "Enum", "values": "{\"range\":[\"cold\",\"wet\",\"wind\",\"auto\"]}" },
+      { "code": "mode", "desc": "Operating mode", "name": "Mode", "type": "Enum", "values": "{\"range\":[\"Cool\",\"Dyr\",\"Fan\"]}" },
       { "code": "temp_set", "desc": "Target temperature", "name": "Set Temp", "type": "Integer", "values": "{\"min\":160,\"max\":310,\"scale\":1,\"step\":5,\"unit\":\"℃\"}" },
       { "code": "temp_current", "desc": "Current temperature", "name": "Current Temp", "type": "Integer", "values": "{\"min\":0,\"max\":500,\"scale\":1,\"step\":1,\"unit\":\"℃\"}" },
+      { "code": "fan_speed_enum", "desc": "Fan speed", "name": "Fan Speed Enum", "type": "Enum", "values": "{\"range\":[\"low\",\"high\"]}" },
       { "code": "windspeed", "desc": "Fan speed", "name": "Fan Speed", "type": "Enum", "values": "{\"range\":[\"low\",\"mid\",\"high\",\"auto\"]}" },
       { "code": "swing", "desc": "Swing mode", "name": "Swing", "type": "Boolean", "values": "{}" },
       { "code": "sleep", "desc": "Sleep mode", "name": "Sleep", "type": "Boolean", "values": "{}" }

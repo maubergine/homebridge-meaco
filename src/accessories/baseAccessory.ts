@@ -24,8 +24,10 @@ export abstract class BaseAccessory {
       : this.accessory.addService(ServiceClass as any);
   }
 
-  protected removeService(ServiceClass: WithUUID<typeof Service>): void {
-    const svc = this.accessory.getService(ServiceClass);
+  protected removeService(ServiceClass: WithUUID<typeof Service>, subtype?: string): void {
+    const svc = subtype
+      ? this.accessory.getServiceById(ServiceClass, subtype)
+      : this.accessory.getService(ServiceClass);
     if (svc) this.accessory.removeService(svc);
   }
 }

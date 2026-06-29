@@ -1,20 +1,27 @@
 export type GetHandler = () => unknown;
-export type SetHandler = (value: unknown, callback: (err?: Error | null) => void) => void;
+export type SetHandler = (value: unknown) => Promise<void>;
 
 export class MockCharacteristic {
   private getHandler?: GetHandler;
   private setHandler?: SetHandler;
   public lastUpdatedValue: unknown;
 
-  on(event: 'get', handler: GetHandler): this;
-  on(event: 'set', handler: SetHandler): this;
-  on(event: string, handler: unknown): this {
-    if (event === 'get') this.getHandler = handler as GetHandler;
-    if (event === 'set') this.setHandler = handler as SetHandler;
+  onGet(handler: GetHandler): this {
+    this.getHandler = handler;
+    return this;
+  }
+
+  onSet(handler: SetHandler): this {
+    this.setHandler = handler;
     return this;
   }
 
   updateValue(value: unknown): this {
+    this.lastUpdatedValue = value;
+    return this;
+  }
+
+  setValue(value: unknown): this {
     this.lastUpdatedValue = value;
     return this;
   }
@@ -27,13 +34,8 @@ export class MockCharacteristic {
   }
 
   invokeSet(value: unknown): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.setHandler) return reject(new Error('No set handler'));
-      this.setHandler(value, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    if (!this.setHandler) return Promise.reject(new Error('No set handler'));
+    return this.setHandler(value);
   }
 }
 
@@ -75,6 +77,31 @@ export class MockAccessory {
   getServiceById(name: string, _subtype: string): MockService | undefined {
     return this.services.get(name);
   }
+}
+
+export function createMockHap() {
+  const makeChar = () => new MockCharacteristic();
+  const charProxy = new Proxy({} as Record<string, unknown>, {
+    get(target, key) {
+      if (!(key in target)) {
+        const c = makeChar();
+        // Static enum values used by the accessory (INACTIVE=0, IDLE=1, HEATING=2, COOLING=3, etc.)
+        Object.assign(c, { INACTIVE: 0, IDLE: 1, HEATING: 2, COOLING: 3, AUTO: 0, HEAT: 1, COOL: 2 });
+        (target as Record<string, unknown>)[key as string] = c;
+      }
+      return (target as Record<string, unknown>)[key as string];
+    },
+  });
+
+  return {
+    Service: new Proxy({} as Record<string, unknown>, {
+      get(target, key) {
+        if (!(key in target)) (target as Record<string, unknown>)[key as string] = key;
+        return (target as Record<string, unknown>)[key as string];
+      },
+    }),
+    Characteristic: charProxy,
+  };
 }
 
 export function createMockLogger() {

@@ -14,7 +14,7 @@ const ALIASES: Record<CanonicalName, string[]> = {
   mode:        ['mode', 'work_mode'],
   setpoint:    ['temp_set', 'set_temp'],
   currentTemp: ['temp_current', 'temp_indoor'],
-  fanSpeed:    ['windspeed', 'fan_speed'],
+  fanSpeed:    ['fan_speed_enum', 'windspeed', 'fan_speed'],
   swing:       ['swing', 'shake'],
   sleep:       ['sleep', 'sleep_mode'],
 };
