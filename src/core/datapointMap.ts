@@ -7,7 +7,8 @@ export type CanonicalName =
   | 'currentTemp'
   | 'fanSpeed'
   | 'swing'
-  | 'sleep';
+  | 'sleep'
+  | 'lock';
 
 const ALIASES: Record<CanonicalName, string[]> = {
   power:       ['switch', 'switch_1', 'power'],
@@ -16,7 +17,8 @@ const ALIASES: Record<CanonicalName, string[]> = {
   currentTemp: ['temp_current', 'temp_indoor'],
   fanSpeed:    ['fan_speed_enum', 'windspeed', 'fan_speed'],
   swing:       ['swing', 'shake'],
-  sleep:       ['sleep', 'sleep_mode'],
+  sleep:       ['sleep', 'sleep_mode', 'Sleep'],
+  lock:        ['lock', 'child_lock'],
 };
 
 export class DatapointMap {

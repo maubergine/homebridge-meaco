@@ -42,7 +42,7 @@ const DEVICE_CONFIG: DeviceConfig = {
   expose_fan_speed: false,
   expose_dry_mode_switch: true,
   expose_fan_only_mode_switch: true,
-  mode_mappings: { heat: 'none' as const, cool: 'Cool' as const, auto: 'none' as const },
+  mode_mappings: { heat: 'None' as const, cool: 'Cool' as const, auto: 'None' as const },
   polling_interval_seconds: 30,
   unresponsive_after_failures: 3,
 };
@@ -61,6 +61,7 @@ function makeAccy() {
   const map = new DatapointMap(PROFILE);
   const poller = new Poller();
   const postCommand = vi.fn().mockResolvedValue(undefined);
+  const fetchStatus = vi.fn().mockResolvedValue([]);
   const log = createMockLogger();
   const hbAccessory = new MockAccessory('Living Room AC', 'uuid-1');
 
@@ -72,11 +73,12 @@ function makeAccy() {
     PROFILE,
     poller,
     postCommand,
+    fetchStatus,
     DEVICE_CONFIG,
     createMockHap() as never,
   );
 
-  return { accy, cache, map, poller, postCommand, hbAccessory };
+  return { accy, cache, map, poller, postCommand, fetchStatus, hbAccessory };
 }
 
 describe('AirConditionerAccessory', () => {
@@ -132,20 +134,21 @@ describe('AirConditionerAccessory', () => {
     expect(cache.state['mode']).toBe(modeBefore);
   });
 
-  function makeFanSpeedAccy() {
+  function makeFanSpeedAccy(stateOverrides: Record<string, boolean | number | string> = {}) {
     const profileWithFanEnum: CapabilityProfile = {
       ...PROFILE,
-      fanSpeedLevels: ['low', 'mid', 'high', 'auto'],
+      fanSpeedLevels: ['Low', 'High'],
       rawFunctions: new Map([
         ...PROFILE.rawFunctions,
-        ['fan_speed_enum', { code: 'fan_speed_enum', desc: 'Fan speed', name: 'Fan Speed Enum', type: 'Enum', values: '{"range":["low","mid","high","auto"]}' }],
+        ['fan_speed_enum', { code: 'fan_speed_enum', desc: 'Fan speed', name: 'Fan Speed Enum', type: 'Enum', values: '{"range":["Low","High"]}' }],
       ]),
     };
     const hbAccessory = new MockAccessory('Test', 'uuid-fan');
     const cache = new StateCache(3);
-    cache.recordSuccess({ switch: true, mode: 'Cool', fan_speed_enum: 'low' });
+    cache.recordSuccess({ switch: true, mode: 'Cool', fan_speed_enum: 'Low', ...stateOverrides });
     const map = new DatapointMap(profileWithFanEnum);
     const postCommand = vi.fn().mockResolvedValue(undefined);
+    const fetchStatus = vi.fn().mockResolvedValue([]);
     const config: DeviceConfig = { ...DEVICE_CONFIG, expose_fan_speed: true };
     const hap = createMockHap();
     new AirConditionerAccessory(
@@ -156,6 +159,7 @@ describe('AirConditionerAccessory', () => {
       profileWithFanEnum,
       new Poller(),
       postCommand,
+      fetchStatus,
       config,
       hap as never,
     );
@@ -166,17 +170,271 @@ describe('AirConditionerAccessory', () => {
     return { rotChar, postCommand };
   }
 
-  it('index 1 sends low to fan_speed_enum', async () => {
+  it('slider below 50% sends Low to fan_speed_enum', async () => {
     const { rotChar, postCommand } = makeFanSpeedAccy();
     expect(rotChar).toBeDefined();
-    await rotChar!.invokeSet(1);
-    expect(postCommand).toHaveBeenCalledWith('dev1', 'fan_speed_enum', 'low');
+    await rotChar!.invokeSet(40);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'fan_speed_enum', 'Low');
   });
 
-  it('index 3 sends high to fan_speed_enum', async () => {
+  it('slider at exactly 50% sends High to fan_speed_enum', async () => {
     const { rotChar, postCommand } = makeFanSpeedAccy();
     expect(rotChar).toBeDefined();
-    await rotChar!.invokeSet(3);
-    expect(postCommand).toHaveBeenCalledWith('dev1', 'fan_speed_enum', 'high');
+    await rotChar!.invokeSet(50);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'fan_speed_enum', 'High');
+  });
+
+  it('slider above 50% sends High to fan_speed_enum', async () => {
+    const { rotChar, postCommand } = makeFanSpeedAccy();
+    expect(rotChar).toBeDefined();
+    await rotChar!.invokeSet(85);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'fan_speed_enum', 'High');
+  });
+
+  it('slider at 0% sends Low (not mapped to off)', async () => {
+    const { rotChar, postCommand } = makeFanSpeedAccy();
+    expect(rotChar).toBeDefined();
+    await rotChar!.invokeSet(0);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'fan_speed_enum', 'Low');
+  });
+
+  it('get returns 100 when current speed is High, 25 otherwise', async () => {
+    const { rotChar } = makeFanSpeedAccy({ fan_speed_enum: 'High' });
+    expect(rotChar!.invokeGet()).toBe(100);
+    const { rotChar: lowChar } = makeFanSpeedAccy({ fan_speed_enum: 'Low' });
+    expect(lowChar!.invokeGet()).toBe(25);
+  });
+
+  // ── Fully-featured accessory: exercises every HeaterCooler get/set handler ────
+
+  function makeFullAccy(stateOverrides: Record<string, boolean | number | string> = {}) {
+    const profile: CapabilityProfile = { ...PROFILE, hasHeat: true, hasSleep: true };
+    const config: DeviceConfig = {
+      ...DEVICE_CONFIG,
+      expose_swing_control: true,
+      expose_sleep_mode_switch: true,
+      expose_child_lock: true,
+      expose_fan_speed: true,
+      mode_mappings: { heat: 'Heat', cool: 'Cool', auto: 'Dry' },
+    };
+    const cache = new StateCache(3);
+    cache.recordSuccess({
+      switch: true,
+      mode: 'Heat',
+      temp_set: 220,
+      temp_current: 240,
+      windspeed: 'mid',
+      swing: true,
+      lock: true,
+      sleep: true,
+      ...stateOverrides,
+    });
+    const hap = createMockHap();
+    const hbAccessory = new MockAccessory('Full AC', 'uuid-full');
+    const postCommand = vi.fn().mockResolvedValue(undefined);
+    const fetchStatus = vi.fn().mockResolvedValue([]);
+    const poller = new Poller();
+    const accy = new AirConditionerAccessory(
+      createMockLogger() as never,
+      hbAccessory as never,
+      cache,
+      new DatapointMap(profile),
+      profile,
+      poller,
+      postCommand,
+      fetchStatus,
+      config,
+      hap as never,
+    );
+    const svc = hbAccessory.services.get('HeaterCooler')!;
+    const char = (c: unknown) => svc.characteristics.get(c as never)!;
+    return { accy, cache, postCommand, fetchStatus, poller, hap, char };
+  }
+
+  it('exposes get handlers reflecting cached state', () => {
+    const { hap, char } = makeFullAccy();
+    const C = hap.Characteristic;
+    expect(char(C.Active).invokeGet()).toBe(1);
+    expect(char(C.CurrentHeaterCoolerState).invokeGet())
+      .toBe(C.CurrentHeaterCoolerState.HEATING);
+    expect(char(C.TargetHeaterCoolerState).invokeGet()).toBe(1); // HEAT
+    expect(char(C.CurrentTemperature).invokeGet()).toBe(24);
+    expect(char(C.HeatingThresholdTemperature).invokeGet()).toBe(22);
+    expect(char(C.CoolingThresholdTemperature).invokeGet()).toBe(22);
+    expect(char(C.SwingMode).invokeGet()).toBe(1);
+    expect(char(C.LockPhysicalControls).invokeGet()).toBe(1);
+    expect(char(C.RotationSpeed).invokeGet()).toBe(25); // 'mid' is not High -> 25
+  });
+
+  it('CurrentHeaterCoolerState is INACTIVE when powered off', () => {
+    const { hap, char } = makeFullAccy({ switch: false });
+    const C = hap.Characteristic;
+    expect(char(C.CurrentHeaterCoolerState).invokeGet())
+      .toBe(C.CurrentHeaterCoolerState.INACTIVE);
+  });
+
+  it('CurrentHeaterCoolerState is COOLING in cool mode, target is COOL by default', () => {
+    const { hap, char } = makeFullAccy({ mode: 'Cool' });
+    const C = hap.Characteristic;
+    expect(char(C.CurrentHeaterCoolerState).invokeGet())
+      .toBe(C.CurrentHeaterCoolerState.COOLING);
+    expect(char(C.TargetHeaterCoolerState).invokeGet()).toBe(2);
+  });
+
+  it('CurrentHeaterCoolerState is IDLE and target is AUTO when auto maps to Dry (Dyr)', () => {
+    // auto -> 'Dry' wires to Tuya 'Dyr'; an incoming 'Dyr' mode resolves to the Auto state
+    const { hap, char } = makeFullAccy({ mode: 'Dyr' });
+    const C = hap.Characteristic;
+    expect(char(C.CurrentHeaterCoolerState).invokeGet())
+      .toBe(C.CurrentHeaterCoolerState.IDLE);
+    expect(char(C.TargetHeaterCoolerState).invokeGet()).toBe(0); // AUTO
+  });
+
+  it('a target state mapped to Dry sends Tuya mode=Dyr', async () => {
+    const { accy, postCommand } = makeFullAccy();
+    await accy.testSetTargetState(0); // AUTO -> mapped to 'Dry'
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'mode', 'Dyr');
+  });
+
+  it('a target state mapped to None sends no command (state is hidden)', async () => {
+    const { accy, postCommand } = makeAccy(); // DEVICE_CONFIG maps heat -> 'None'
+    await accy.testSetTargetState(1); // HEAT
+    expect(postCommand).not.toHaveBeenCalled();
+  });
+
+  it('SwingMode set sends encoded swing command', async () => {
+    const { hap, char, postCommand } = makeFullAccy();
+    await char(hap.Characteristic.SwingMode).invokeSet(0);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'swing', false);
+  });
+
+  it('LockPhysicalControls set sends lock command', async () => {
+    const { hap, char, postCommand } = makeFullAccy();
+    await char(hap.Characteristic.LockPhysicalControls).invokeSet(1);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'lock', true);
+  });
+
+  it('HeatingThreshold set sends temp_set', async () => {
+    const { hap, char, postCommand } = makeFullAccy();
+    await char(hap.Characteristic.HeatingThresholdTemperature).invokeSet(20);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'temp_set', 200);
+  });
+
+  it('swing set reverts optimistic update when postCommand fails', async () => {
+    const { hap, char, cache, postCommand } = makeFullAccy();
+    postCommand.mockRejectedValueOnce(new Error('fail'));
+    const before = cache.state['swing'];
+    await expect(char(hap.Characteristic.SwingMode).invokeSet(0)).rejects.toThrow();
+    expect(cache.state['swing']).toBe(before);
+  });
+
+  it('lock set reverts optimistic update when postCommand fails', async () => {
+    const { hap, char, cache, postCommand } = makeFullAccy();
+    postCommand.mockRejectedValueOnce(new Error('fail'));
+    const before = cache.state['lock'];
+    await expect(char(hap.Characteristic.LockPhysicalControls).invokeSet(0)).rejects.toThrow();
+    expect(cache.state['lock']).toBe(before);
+  });
+
+  it('dry mode off restores the previous mode', async () => {
+    const { accy, postCommand } = makeFullAccy();
+    await accy.testSetDryMode(false);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'mode', 'Cool');
+  });
+
+  it('fan mode off restores the previous mode', async () => {
+    const { accy, postCommand } = makeFullAccy();
+    await accy.testSetFanMode(false);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'mode', 'Cool');
+  });
+
+  it('fan mode on then off restores the remembered mode', async () => {
+    const { accy, postCommand } = makeFullAccy({ mode: 'Heat' });
+    await accy.testSetFanMode(true);
+    postCommand.mockClear();
+    await accy.testSetFanMode(false);
+    expect(postCommand).toHaveBeenCalledWith('dev1', 'mode', 'Heat');
+  });
+
+  it('dry mode on reverts both mode and switch when postCommand fails', async () => {
+    const { accy, cache, postCommand } = makeFullAccy({ mode: 'Cool', switch: false });
+    postCommand.mockRejectedValueOnce(new Error('fail'));
+    await expect(accy.testSetDryMode(true)).rejects.toThrow();
+    expect(cache.state['mode']).toBe('Cool');
+    expect(cache.state['switch']).toBe(false);
+  });
+
+  it('fan mode on reverts both mode and switch when postCommand fails', async () => {
+    const { accy, cache, postCommand } = makeFullAccy({ mode: 'Cool', switch: false });
+    postCommand.mockRejectedValueOnce(new Error('fail'));
+    await expect(accy.testSetFanMode(true)).rejects.toThrow();
+    expect(cache.state['mode']).toBe('Cool');
+    expect(cache.state['switch']).toBe(false);
+  });
+
+  it('active set reverts optimistic update when postCommand fails', async () => {
+    const { accy, cache, postCommand } = makeFullAccy({ switch: true });
+    postCommand.mockRejectedValueOnce(new Error('fail'));
+    await expect(accy.testSetActive(0)).rejects.toThrow();
+    expect(cache.state['switch']).toBe(true);
+  });
+
+  it('cooling threshold set reverts optimistic update when postCommand fails', async () => {
+    const { accy, cache, postCommand } = makeFullAccy({ temp_set: 220 });
+    postCommand.mockRejectedValueOnce(new Error('fail'));
+    await expect(accy.testSetCoolingThreshold(24)).rejects.toThrow();
+    expect(cache.state['temp_set']).toBe(220);
+  });
+
+  // ── State refresh / cross-service interaction ────────────────────────────────
+
+  it('pollOnce fetches device status, updates the cache, and pushes to all characteristics', async () => {
+    const { accy, cache, hap, char, fetchStatus } = makeFullAccy({ switch: false, mode: 'Cool' });
+    // The device reports a Fan-mode-with-power-on interaction
+    fetchStatus.mockResolvedValueOnce([
+      { code: 'switch', value: true },
+      { code: 'mode', value: 'Fan' },
+      { code: 'swing', value: false },
+    ]);
+    await accy.pollOnce();
+    expect(cache.state['switch']).toBe(true);
+    expect(cache.state['mode']).toBe('Fan');
+    // Values were pushed to HomeKit, not merely available on demand
+    expect(char(hap.Characteristic.Active).lastUpdatedValue).toBe(1);
+    expect(char(hap.Characteristic.SwingMode).lastUpdatedValue).toBe(0);
+  });
+
+  it('a HomeKit set schedules a refresh that re-reads and pushes the whole device state', async () => {
+    vi.useFakeTimers();
+    try {
+      const { accy, hap, char, fetchStatus, poller } = makeFullAccy({ switch: false });
+      poller.start(99999, () => accy.pollOnce());
+      // Device-side interaction: the command turns the unit on
+      fetchStatus.mockResolvedValue([{ code: 'switch', value: true }]);
+
+      await char(hap.Characteristic.Active).invokeSet(1);
+      expect(fetchStatus).not.toHaveBeenCalled(); // settle delay not yet elapsed
+
+      await vi.advanceTimersByTimeAsync(1300);
+      expect(fetchStatus).toHaveBeenCalledTimes(1);
+      expect(char(hap.Characteristic.Active).lastUpdatedValue).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rapid successive sets coalesce into a single refresh', async () => {
+    vi.useFakeTimers();
+    try {
+      const { accy, hap, char, fetchStatus, poller } = makeFullAccy();
+      poller.start(99999, () => accy.pollOnce());
+      await char(hap.Characteristic.Active).invokeSet(1);
+      await char(hap.Characteristic.Active).invokeSet(0);
+      await char(hap.Characteristic.SwingMode).invokeSet(1);
+      await vi.advanceTimersByTimeAsync(1300);
+      expect(fetchStatus).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

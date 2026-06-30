@@ -38,6 +38,7 @@ export class StateCache {
     if (!this.preOptimistic.has(code)) return;
     const prior = this.preOptimistic.get(code);
     if (prior === undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- code is a runtime datapoint key
       delete this.state[code];
     } else {
       this.state[code] = prior;

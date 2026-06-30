@@ -20,7 +20,7 @@ import { Poller } from './core/poller.js';
 import { AirConditionerAccessory } from './accessories/airConditionerAccessory.js';
 import type { DeviceConfig, TuyaChoice } from './accessories/airConditionerAccessory.js';
 
-type DeviceOverride = {
+interface DeviceOverride {
   tuya_device_id: string;
   enabled?: boolean;
   display_name?: string;
@@ -38,7 +38,7 @@ type DeviceOverride = {
   unresponsive_after_failures?: number;
   capability_overrides?: CapabilityOverrides;
   mode_mappings?: { heat?: TuyaChoice; cool?: TuyaChoice; auto?: TuyaChoice };
-};
+}
 
 interface PluginConfig extends PlatformConfig {
   cloud_credentials?: {
@@ -49,14 +49,11 @@ interface PluginConfig extends PlatformConfig {
   devices?: DeviceOverride[];
   advanced_settings?: {
     request_timeout_ms?: number;
-    max_command_retries?: number;
-    command_verify_interval_ms?: number;
-    debug_logging?: boolean;
   };
 }
 
 export class MeacoPlatform implements DynamicPlatformPlugin {
-  private readonly accessories: Map<string, PlatformAccessory> = new Map();
+  private readonly accessories = new Map<string, PlatformAccessory>();
   private cloudClient: CloudClient | null = null;
   private readonly pollers: Poller[] = [];
 
@@ -91,17 +88,22 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       secretKey: creds.tuya_secret_key,
       requestTimeoutMs: advanced.request_timeout_ms ?? DEFAULTS.requestTimeoutMs,
     });
+    const client = this.cloudClient;
 
     const overridesByDeviceId = new Map<string, DeviceOverride>(
       (this.config.devices ?? []).map(d => [d.tuya_device_id, d]),
     );
 
-    const discovered = await this.cloudClient.listAllDevices(20, 'kt');
-    this.log.info(`Discovered ${discovered.length} AC device(s) from Tuya.`);
+    const allInCategory = await client.listAllDevices(20, 'kt');
+    const discovered = allInCategory.filter(d => d.productName.toLowerCase().startsWith('meaco'));
+    const skipped = allInCategory.length - discovered.length;
+    this.log.info(
+      `Discovered ${discovered.length} Meaco AC device(s) from Tuya` +
+      (skipped > 0 ? ` (ignored ${skipped} non-Meaco device(s) in category 'kt').` : '.'),
+    );
 
     const newDevices = discovered.filter(d => !overridesByDeviceId.has(d.id));
     if (newDevices.length > 0) {
-      const client = this.cloudClient!;
       const newEntries = await Promise.all(newDevices.map(async (d) => {
         const modelResponse = await client.getDeviceModel(d.id).catch(() => null);
         const modeRange = modelResponse ? parseModeRangeFromModel(modelResponse.result.model) : [];
@@ -123,7 +125,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         this.log.info(`Skipping disabled device: ${device.name} (${device.id})`);
         continue;
       }
-      await this.setupDevice(device.id, overrides, advanced);
+      await this.setupDevice(device.id, overrides, advanced, client);
     }
 
     const stale = [...this.accessories.values()];
@@ -137,11 +139,11 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
     try {
       const configPath = this.api.user.configPath();
       const raw = await readFile(configPath, 'utf-8');
-      const configJson = JSON.parse(raw) as { platforms?: Array<Record<string, unknown>> };
-      const platform = configJson.platforms?.find(p => p['platform'] === PLATFORM_NAME);
+      const configJson = JSON.parse(raw) as { platforms?: Record<string, unknown>[] };
+      const platform = configJson.platforms?.find(p => p.platform === PLATFORM_NAME);
       if (!platform) return;
-      const existing = (platform['devices'] ?? []) as DeviceOverride[];
-      platform['devices'] = [...existing, ...entries];
+      const existing = (platform.devices ?? []) as DeviceOverride[];
+      platform.devices = [...existing, ...entries];
       await writeFile(configPath, JSON.stringify(configJson, null, 4));
       this.log.info(`Added ${entries.length} new device(s) to config: ${entries.map(e => e.tuya_device_id).join(', ')}`);
     } catch (err) {
@@ -153,8 +155,8 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
     deviceId: string,
     overrides: DeviceOverride | undefined,
     _advanced: NonNullable<PluginConfig['advanced_settings']>,
+    client: CloudClient,
   ): Promise<void> {
-    const client = this.cloudClient!;
     try {
       const [infoResponse, specResponse, modelResponse] = await Promise.all([
         client.getDeviceInfo(deviceId),
@@ -182,9 +184,9 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       const map = new DatapointMap(profile);
 
       const apiDevice = infoResponse.result;
-      const displayName = overrides?.display_name || apiDevice.name || 'Air Conditioner';
+      const displayName = overrides?.display_name ?? apiDevice.name;
       const manufacturer = overrides?.manufacturer ?? 'Meaco';
-      const model = overrides?.model ?? apiDevice.model ?? apiDevice.product_id;
+      const model = overrides?.model ?? apiDevice.model;
       const serialNumber = overrides?.serial_number ?? apiDevice.uuid;
 
       const cfgUnit = overrides?.temperature_unit ?? 'auto';
@@ -202,8 +204,8 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       }
       this.accessories.delete(uuid);
 
-      accessory.getService(this.api.hap.Service.AccessoryInformation)!
-        .setCharacteristic(this.api.hap.Characteristic.Manufacturer, manufacturer)
+      accessory.getService(this.api.hap.Service.AccessoryInformation)
+        ?.setCharacteristic(this.api.hap.Characteristic.Manufacturer, manufacturer)
         .setCharacteristic(this.api.hap.Characteristic.Model, model)
         .setCharacteristic(this.api.hap.Characteristic.SerialNumber, serialNumber);
 
@@ -236,7 +238,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         unresponsive_after_failures: overrides?.unresponsive_after_failures ?? DEFAULTS.unresponsiveAfterFailures,
       };
 
-      new AirConditionerAccessory(
+      const airConditioner = new AirConditionerAccessory(
         this.log,
         accessory,
         cache,
@@ -244,22 +246,14 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         profile,
         poller,
         (id, code, value) => client.postCommand(id, code, value),
+        () => client.getDeviceStatus(deviceId),
         deviceConfig,
         this.api.hap,
       );
 
-      poller.start(deviceConfig.polling_interval_seconds, async () => {
-        try {
-          const status = await client.getDeviceStatus(deviceId);
-          const statusMap: Record<string, boolean | number | string> = {};
-          for (const item of status) {
-            statusMap[item.code] = item.value as boolean | number | string;
-          }
-          cache.recordSuccess(statusMap);
-        } catch {
-          cache.recordFailure();
-        }
-      });
+      // Polling and post-command refreshes share one path that updates the cache
+      // and pushes the full state to every characteristic/service.
+      poller.start(deviceConfig.polling_interval_seconds, () => airConditioner.pollOnce());
     } catch (err) {
       this.log.error(`Failed to set up device ${deviceId}: ${String(err)}`);
     }

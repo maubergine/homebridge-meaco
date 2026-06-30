@@ -64,6 +64,31 @@ describe('DatapointMap', () => {
     expect(map.encodeSwing(false)).toEqual({ code: 'swing', value: false });
   });
 
+  it('resolves the capitalised Meaco "Sleep" code', () => {
+    const profileWithCapSleep: CapabilityProfile = {
+      ...MOCK_PROFILE,
+      rawFunctions: new Map([
+        ...MOCK_PROFILE.rawFunctions,
+        ['Sleep', { code: 'Sleep', desc: '', name: 'Sleep', type: 'Boolean', values: '{}' }],
+      ]),
+    };
+    profileWithCapSleep.rawFunctions.delete('sleep');
+    const map = new DatapointMap(profileWithCapSleep);
+    expect(map.resolve('sleep')).toBe('Sleep');
+  });
+
+  it('resolves the "child_lock" code via the lock alias', () => {
+    const profileWithChildLock: CapabilityProfile = {
+      ...MOCK_PROFILE,
+      rawFunctions: new Map([
+        ...MOCK_PROFILE.rawFunctions,
+        ['child_lock', { code: 'child_lock', desc: '', name: '', type: 'Boolean', values: '{}' }],
+      ]),
+    };
+    const map = new DatapointMap(profileWithChildLock);
+    expect(map.resolve('lock')).toBe('child_lock');
+  });
+
   it('falls back to alias when primary code absent', () => {
     const profileWithShake: CapabilityProfile = {
       ...MOCK_PROFILE,

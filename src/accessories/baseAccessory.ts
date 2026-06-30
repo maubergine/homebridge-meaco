@@ -19,10 +19,13 @@ export abstract class BaseAccessory {
       : this.accessory.getService(ServiceClass);
     if (existing) return existing;
     const displayName = name ?? this.accessory.displayName;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // HAP's generic addService signature can't be satisfied by a WithUUID service class
+    // whose concrete constructor differs from the base Service constructor.
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     return subtype
       ? this.accessory.addService(ServiceClass as any, displayName, subtype)
       : this.accessory.addService(ServiceClass as any);
+    /* eslint-enable @typescript-eslint/no-explicit-any */
   }
 
   protected removeService(ServiceClass: WithUUID<typeof Service>, subtype?: string): void {

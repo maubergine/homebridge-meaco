@@ -1,12 +1,14 @@
-import type { API, Logger, PlatformAccessory } from 'homebridge';
+import type { API, Characteristic, CharacteristicValue, Logger, PlatformAccessory } from 'homebridge';
 
 import type { CapabilityProfile } from '../core/capabilityProfile.js';
 import type { DatapointMap } from '../core/datapointMap.js';
 import { Poller } from '../core/poller.js';
 import { StateCache } from '../core/stateCache.js';
+import type { TuyaStatusItem, TuyaValue } from '../tuya/types.js';
+
 import { BaseAccessory } from './baseAccessory.js';
 
-export type TuyaChoice = 'Heat' | 'Cool' | 'Auto' | 'Fan' | 'none';
+export type TuyaChoice = 'Cool' | 'Dry' | 'Fan' | 'Heat' | 'None';
 
 export interface DeviceConfig {
   tuya_device_id: string;
@@ -32,18 +34,28 @@ export interface DeviceConfig {
 }
 
 type PostCommandFn = (deviceId: string, code: string, value: boolean | number | string) => Promise<void>;
+type FetchStatusFn = () => Promise<TuyaStatusItem[]>;
 type HAP = API['hap'];
+type Char = Characteristic;
 
 const HK_ACTIVE_ACTIVE      = 1;
 const HK_HEATER_COOLER_AUTO = 0;
 const HK_HEATER_COOLER_HEAT = 1;
 const HK_HEATER_COOLER_COOL = 2;
 
-const TUYA_WIRE: Record<Exclude<TuyaChoice, 'none'>, string> = {
-  Heat: 'Heat',
+// Many Tuya operations have interacting side effects (e.g. selecting Fan mode also
+// powers the unit on, and changing mode toggles the dry/fan switches). After any
+// command we re-read the full device state and push it to every characteristic. A
+// short settle delay lets the cloud reflect those side effects before we read back.
+const REFRESH_SETTLE_MS = 1200;
+
+// Maps a configured Meaco choice to the value sent to the Tuya `mode` datapoint.
+// Most choices pass through transparently; 'Dry' is sent as Tuya's 'Dyr'.
+const TUYA_WIRE: Record<Exclude<TuyaChoice, 'None'>, string> = {
   Cool: 'Cool',
-  Auto: 'Auto',
+  Dry:  'Dyr',
   Fan:  'Fan',
+  Heat: 'Heat',
 };
 
 export class AirConditionerAccessory extends BaseAccessory {
@@ -51,9 +63,14 @@ export class AirConditionerAccessory extends BaseAccessory {
   private readonly map: DatapointMap;
   protected readonly poller: Poller;
   private readonly postCommand: PostCommandFn;
+  private readonly fetchStatus: FetchStatusFn;
   private readonly config: DeviceConfig;
   private readonly hap: HAP;
   private previousNonSpecialMode: string | null = null;
+
+  // Pushes the current cached state to every bound characteristic.
+  private readonly refreshers: (() => void)[] = [];
+  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     log: Logger,
@@ -63,6 +80,7 @@ export class AirConditionerAccessory extends BaseAccessory {
     profile: CapabilityProfile,
     poller: Poller,
     postCommand: PostCommandFn,
+    fetchStatus: FetchStatusFn,
     config: DeviceConfig,
     hap: HAP,
   ) {
@@ -71,6 +89,7 @@ export class AirConditionerAccessory extends BaseAccessory {
     this.map = map;
     this.poller = poller;
     this.postCommand = postCommand;
+    this.fetchStatus = fetchStatus;
     this.config = config;
     this.hap = hap;
 
@@ -80,14 +99,68 @@ export class AirConditionerAccessory extends BaseAccessory {
     this.setupFanSwitch();
   }
 
+  // ── State refresh ───────────────────────────────────────────────────────────
+
+  /**
+   * Registers a get handler and remembers it so the same value can be pushed to
+   * HomeKit during a state refresh (rather than only being pulled on demand).
+   */
+  private bindGet(char: Char, getFn: () => CharacteristicValue): Char {
+    char.onGet(getFn);
+    this.refreshers.push(() => { char.updateValue(getFn()); });
+    return char;
+  }
+
+  /**
+   * Registers a set handler that, after the command resolves, schedules a refresh
+   * of the whole device so interacting side effects surface on every service.
+   */
+  private bindSet(char: Char, setFn: (value: unknown) => Promise<void>): void {
+    char.onSet(async (value) => {
+      await setFn(value);
+      this.scheduleRefresh();
+    });
+  }
+
+  private scheduleRefresh(): void {
+    if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      void this.poller.triggerNow();
+    }, REFRESH_SETTLE_MS);
+  }
+
+  /** Fetches the full device status, updates the cache, and pushes to HomeKit. */
+  async pollOnce(): Promise<void> {
+    try {
+      const status = await this.fetchStatus();
+      const statusMap: Record<string, TuyaValue> = {};
+      for (const item of status) {
+        statusMap[item.code] = item.value;
+      }
+      this.stateCache.recordSuccess(statusMap);
+    } catch {
+      this.stateCache.recordFailure();
+      return;
+    }
+    this.pushState();
+  }
+
+  /** Pushes the current cached state to every bound characteristic. */
+  pushState(): void {
+    for (const refresh of this.refreshers) {
+      refresh();
+    }
+  }
+
   // ── Mode resolution ─────────────────────────────────────────────────────────
 
   private resolvedModes(): { heat: string | null; cool: string | null; auto: string | null } {
     const m = this.config.mode_mappings;
     return {
-      heat: m.heat === 'none' ? null : TUYA_WIRE[m.heat],
-      cool: m.cool === 'none' ? null : TUYA_WIRE[m.cool],
-      auto: m.auto === 'none' ? null : TUYA_WIRE[m.auto],
+      heat: m.heat === 'None' ? null : TUYA_WIRE[m.heat],
+      cool: m.cool === 'None' ? null : TUYA_WIRE[m.cool],
+      auto: m.auto === 'None' ? null : TUYA_WIRE[m.auto],
     };
   }
 
@@ -103,18 +176,18 @@ export class AirConditionerAccessory extends BaseAccessory {
     const svc = this.getOrAddService(Service.Switch, 'sleep', 'Sleep Mode');
     this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
     svc.setCharacteristic(Characteristic.ConfiguredName, 'Sleep Mode');
-    svc.getCharacteristic(Characteristic.On)
-      .onGet(() => !!this.stateCache.state[dpCode])
-      .onSet(async (value) => {
-        const on = value as boolean;
-        this.stateCache.optimisticSet(dpCode, on);
-        try {
-          await this.postCommand(this.config.tuya_device_id, dpCode, on);
-        } catch (err) {
-          this.stateCache.revertOptimistic(dpCode);
-          throw err;
-        }
-      });
+    const c = svc.getCharacteristic(Characteristic.On);
+    this.bindGet(c, () => !!this.stateCache.state[dpCode]);
+    this.bindSet(c, async (value) => {
+      const on = value as boolean;
+      this.stateCache.optimisticSet(dpCode, on);
+      try {
+        await this.postCommand(this.config.tuya_device_id, dpCode, on);
+      } catch (err) {
+        this.stateCache.revertOptimistic(dpCode);
+        throw err;
+      }
+    });
   }
 
   private setupDrySwitch(): void {
@@ -126,9 +199,9 @@ export class AirConditionerAccessory extends BaseAccessory {
     const svc = this.getOrAddService(Service.Switch, 'dry', 'Dry Mode');
     this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
     svc.setCharacteristic(Characteristic.ConfiguredName, 'Dry Mode');
-    svc.getCharacteristic(Characteristic.On)
-      .onGet(() => this.stateCache.state['mode'] === 'Dyr')
-      .onSet(async (value) => { await this.testSetDryMode(value as boolean); });
+    const c = svc.getCharacteristic(Characteristic.On);
+    this.bindGet(c, () => this.stateCache.state.mode === 'Dyr');
+    this.bindSet(c, async (value) => { await this.testSetDryMode(value as boolean); });
   }
 
   private setupFanSwitch(): void {
@@ -140,9 +213,9 @@ export class AirConditionerAccessory extends BaseAccessory {
     const svc = this.getOrAddService(Service.Switch, 'fan', 'Fan Only');
     this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
     svc.setCharacteristic(Characteristic.ConfiguredName, 'Fan Only');
-    svc.getCharacteristic(Characteristic.On)
-      .onGet(() => this.stateCache.state['mode'] === 'Fan')
-      .onSet(async (value) => { await this.testSetFanMode(value as boolean); });
+    const c = svc.getCharacteristic(Characteristic.On);
+    this.bindGet(c, () => this.stateCache.state.mode === 'Fan');
+    this.bindSet(c, async (value) => { await this.testSetFanMode(value as boolean); });
   }
 
   private setupHeaterCoolerService(): void {
@@ -156,94 +229,95 @@ export class AirConditionerAccessory extends BaseAccessory {
     svc.setPrimaryService(true);
 
     // Active (power on/off)
-    svc.getCharacteristic(Characteristic.Active)
-      .onGet(() => (this.stateCache.state['switch'] ? HK_ACTIVE_ACTIVE : 0))
-      .onSet(async (value) => { await this.testSetActive(value as number); });
+    const active = svc.getCharacteristic(Characteristic.Active);
+    this.bindGet(active, () => (this.stateCache.state.switch ? HK_ACTIVE_ACTIVE : 0));
+    this.bindSet(active, async (value) => { await this.testSetActive(value as number); });
 
-    // CurrentHeaterCoolerState — derived from switch + mode
-    svc.getCharacteristic(Characteristic.CurrentHeaterCoolerState)
-      .onGet(() => this.getCurrentHeaterCoolerState());
+    // CurrentHeaterCoolerState — derived from switch + mode (read-only)
+    this.bindGet(
+      svc.getCharacteristic(Characteristic.CurrentHeaterCoolerState),
+      () => this.getCurrentHeaterCoolerState(),
+    );
 
-    // TargetHeaterCoolerState — driven entirely by mode_mappings; 'none' excludes a state
+    // TargetHeaterCoolerState — driven entirely by mode_mappings; 'None' excludes a state
     const resolvedModes = this.resolvedModes();
     const validTargetStates: number[] = [];
     if (resolvedModes.auto !== null) validTargetStates.push(HK_HEATER_COOLER_AUTO);
     if (resolvedModes.heat !== null) validTargetStates.push(HK_HEATER_COOLER_HEAT);
     if (resolvedModes.cool !== null) validTargetStates.push(HK_HEATER_COOLER_COOL);
 
-    svc.getCharacteristic(Characteristic.TargetHeaterCoolerState)
-      .setProps({ validValues: validTargetStates })
-      .onGet(() => this.getTargetHeaterCoolerState())
-      .onSet(async (value) => { await this.testSetTargetState(value as number); });
+    const target = svc.getCharacteristic(Characteristic.TargetHeaterCoolerState)
+      .setProps({ validValues: validTargetStates });
+    this.bindGet(target, () => this.getTargetHeaterCoolerState());
+    this.bindSet(target, async (value) => { await this.testSetTargetState(value as number); });
 
-    // CurrentTemperature
+    // CurrentTemperature (read-only)
     if (this.map.resolve('currentTemp')) {
       const cr = this.profile.currentTempRange;
-      svc.getCharacteristic(Characteristic.CurrentTemperature)
-        .setProps({ minValue: cr?.min ?? 0, maxValue: cr?.max ?? 100, minStep: cr?.step ?? 0.1 })
-        .onGet(() => {
-          const raw = this.stateCache.state[this.map.resolve('currentTemp') ?? 'temp_current'] as number | undefined;
-          return raw !== undefined ? this.map.decodeCurrentTemp(raw) : 20;
-        });
+      const curTemp = svc.getCharacteristic(Characteristic.CurrentTemperature)
+        .setProps({ minValue: cr?.min ?? 0, maxValue: cr?.max ?? 100, minStep: cr?.step ?? 0.1 });
+      this.bindGet(curTemp, () => {
+        const raw = this.stateCache.state[this.map.resolve('currentTemp') ?? 'temp_current'] as number | undefined;
+        return raw !== undefined ? this.map.decodeCurrentTemp(raw) : 20;
+      });
     }
 
     // CoolingThresholdTemperature
     if (this.profile.hasCool) {
       const { min, max, step } = this.profile.tempRange;
-      svc.getCharacteristic(Characteristic.CoolingThresholdTemperature)
-        .setProps({ minValue: min, maxValue: max, minStep: step })
-        .onGet(() => {
-          const raw = this.stateCache.state[this.map.resolve('setpoint') ?? 'temp_set'] as number | undefined;
-          return raw !== undefined ? this.map.decodeSetpoint(raw) : min;
-        })
-        .onSet(async (value) => { await this.testSetCoolingThreshold(value as number); });
+      const cool = svc.getCharacteristic(Characteristic.CoolingThresholdTemperature)
+        .setProps({ minValue: min, maxValue: max, minStep: step });
+      this.bindGet(cool, () => {
+        const raw = this.stateCache.state[this.map.resolve('setpoint') ?? 'temp_set'] as number | undefined;
+        return raw !== undefined ? this.map.decodeSetpoint(raw) : min;
+      });
+      this.bindSet(cool, async (value) => { await this.testSetCoolingThreshold(value as number); });
     }
 
     // HeatingThresholdTemperature (shares the same DP as cooling setpoint)
     if (this.profile.hasHeat) {
       const { min, max, step } = this.profile.tempRange;
-      svc.getCharacteristic(Characteristic.HeatingThresholdTemperature)
-        .setProps({ minValue: min, maxValue: max, minStep: step })
-        .onGet(() => {
-          const raw = this.stateCache.state[this.map.resolve('setpoint') ?? 'temp_set'] as number | undefined;
-          return raw !== undefined ? this.map.decodeSetpoint(raw) : min;
-        })
-        .onSet(async (value) => { await this.testSetCoolingThreshold(value as number); });
+      const heat = svc.getCharacteristic(Characteristic.HeatingThresholdTemperature)
+        .setProps({ minValue: min, maxValue: max, minStep: step });
+      this.bindGet(heat, () => {
+        const raw = this.stateCache.state[this.map.resolve('setpoint') ?? 'temp_set'] as number | undefined;
+        return raw !== undefined ? this.map.decodeSetpoint(raw) : min;
+      });
+      this.bindSet(heat, async (value) => { await this.testSetCoolingThreshold(value as number); });
     }
 
     // SwingMode
     if (this.profile.hasSwing && this.config.expose_swing_control) {
-      svc.getCharacteristic(Characteristic.SwingMode)
-        .onGet(() => (this.stateCache.state['swing'] ? 1 : 0))
-        .onSet(async (value) => {
-          const on = (value as number) === 1;
-          this.stateCache.optimisticSet('swing', on);
-          try {
-            const encoded = this.map.encodeSwing(on);
-            await this.postCommand(this.config.tuya_device_id, encoded.code, encoded.value);
-          } catch (err) {
-            this.stateCache.revertOptimistic('swing');
-            throw err;
-          }
-        });
+      const swing = svc.getCharacteristic(Characteristic.SwingMode);
+      this.bindGet(swing, () => (this.stateCache.state.swing ? 1 : 0));
+      this.bindSet(swing, async (value) => {
+        const on = (value as number) === 1;
+        this.stateCache.optimisticSet('swing', on);
+        try {
+          const encoded = this.map.encodeSwing(on);
+          await this.postCommand(this.config.tuya_device_id, encoded.code, encoded.value);
+        } catch (err) {
+          this.stateCache.revertOptimistic('swing');
+          throw err;
+        }
+      });
     }
 
     // LockPhysicalControls (child lock) — lives on the HeaterCooler service
     if (this.config.expose_child_lock) {
-      const lockGet = () => (this.stateCache.state['lock'] ? 1 : 0);
-      const lockSet = async (value: unknown) => {
+      const lockCode = this.map.resolve('lock') ?? 'lock';
+      const lock = svc.getCharacteristic(Characteristic.LockPhysicalControls);
+      this.bindGet(lock, () => (this.stateCache.state[lockCode] ? 1 : 0));
+      this.bindSet(lock, async (value) => {
         const locked = (value as number) === 1;
-        this.stateCache.optimisticSet('lock', locked);
+        this.stateCache.optimisticSet(lockCode, locked);
         try {
-          await this.postCommand(this.config.tuya_device_id, 'lock', locked);
+          await this.postCommand(this.config.tuya_device_id, lockCode, locked);
         } catch (err) {
-          this.stateCache.revertOptimistic('lock');
+          this.stateCache.revertOptimistic(lockCode);
           throw err;
         }
-      };
-      svc.getCharacteristic(Characteristic.LockPhysicalControls)
-        .onGet(lockGet)
-        .onSet(lockSet);
+      });
     }
 
     const fanSpeedCode = this.map.resolve('fanSpeed');
@@ -251,18 +325,17 @@ export class AirConditionerAccessory extends BaseAccessory {
       this.log.warn('expose_fan_speed is enabled but no fan speed datapoint found in device spec (expected fan_speed_enum, windspeed, or fan_speed)');
     }
     if (this.config.expose_fan_speed && fanSpeedCode !== undefined) {
-      const levels = this.profile.fanSpeedLevels;
-      if (levels.length === 0) {
-        this.log.warn('expose_fan_speed is enabled but device spec reports no fan speed levels');
-      }
-      const fanSpeedProps = { minValue: 1, maxValue: levels.length, minStep: 1 };
-      const fanSpeedGet = () => {
+      // HomeKit's RotationSpeed is a 0–100% slider. The Meaco fan datapoint only
+      // supports two speeds, so the slider is split at the midpoint: below 50% is
+      // Low, 50% and above is High. 0% is treated as Low — it is not mapped to off.
+      const fan = svc.getCharacteristic(Characteristic.RotationSpeed)
+        .setProps({ minValue: 0, maxValue: 100, minStep: 1 });
+      this.bindGet(fan, () => {
         const level = this.stateCache.state[fanSpeedCode] as string | undefined;
-        const index = level !== undefined ? levels.indexOf(level) : -1;
-        return index !== -1 ? index + 1 : 1;
-      };
-      const fanSpeedSet = async (value: unknown) => {
-        const speed = levels[(value as number) - 1] ?? levels[0] ?? '';
+        return level?.toLowerCase() === 'high' ? 100 : 25;
+      });
+      this.bindSet(fan, async (value) => {
+        const speed = (value as number) >= 50 ? 'High' : 'Low';
         this.stateCache.optimisticSet(fanSpeedCode, speed);
         try {
           await this.postCommand(this.config.tuya_device_id, fanSpeedCode, speed);
@@ -270,18 +343,14 @@ export class AirConditionerAccessory extends BaseAccessory {
           this.stateCache.revertOptimistic(fanSpeedCode);
           throw err;
         }
-      };
-      svc.getCharacteristic(Characteristic.RotationSpeed)
-        .setProps(fanSpeedProps)
-        .onGet(fanSpeedGet)
-        .onSet(fanSpeedSet);
+      });
     }
   }
 
   private getCurrentHeaterCoolerState(): number {
     const { Characteristic } = this.hap;
-    if (!this.stateCache.state['switch']) return Characteristic.CurrentHeaterCoolerState.INACTIVE;
-    const mode = this.stateCache.state['mode'] as string | undefined;
+    if (!this.stateCache.state.switch) return Characteristic.CurrentHeaterCoolerState.INACTIVE;
+    const mode = this.stateCache.state.mode as string | undefined;
     const modes = this.resolvedModes();
     if (mode && mode === modes.heat) return Characteristic.CurrentHeaterCoolerState.HEATING;
     if (mode && mode === modes.cool) return Characteristic.CurrentHeaterCoolerState.COOLING;
@@ -289,7 +358,7 @@ export class AirConditionerAccessory extends BaseAccessory {
   }
 
   private getTargetHeaterCoolerState(): number {
-    const mode = this.stateCache.state['mode'] as string | undefined;
+    const mode = this.stateCache.state.mode as string | undefined;
     const modes = this.resolvedModes();
     if (mode && mode === modes.heat) return HK_HEATER_COOLER_HEAT;
     if (mode && mode === modes.auto) return HK_HEATER_COOLER_AUTO;
@@ -337,7 +406,7 @@ export class AirConditionerAccessory extends BaseAccessory {
 
   async testSetDryMode(on: boolean): Promise<void> {
     if (on) {
-      this.previousNonSpecialMode = (this.stateCache.state['mode'] as string | undefined) ?? null;
+      this.previousNonSpecialMode = (this.stateCache.state.mode as string | undefined) ?? null;
       this.stateCache.optimisticSet('mode', 'Dyr');
       this.stateCache.optimisticSet('switch', true);
       try {
@@ -362,7 +431,7 @@ export class AirConditionerAccessory extends BaseAccessory {
 
   async testSetFanMode(on: boolean): Promise<void> {
     if (on) {
-      this.previousNonSpecialMode = (this.stateCache.state['mode'] as string | undefined) ?? null;
+      this.previousNonSpecialMode = (this.stateCache.state.mode as string | undefined) ?? null;
       this.stateCache.optimisticSet('mode', 'Fan');
       this.stateCache.optimisticSet('switch', true);
       try {

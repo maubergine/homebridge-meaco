@@ -1,7 +1,8 @@
 import type { CapabilityProfile, TempRange } from '../core/capabilityProfile.js';
+
 import type { TuyaFunctionSpec, TuyaSpecResponse } from './types.js';
 
-type TuyaChoice = 'Heat' | 'Cool' | 'Auto' | 'Fan' | 'none';
+type TuyaChoice = 'Cool' | 'Dry' | 'Fan' | 'Heat' | 'None';
 
 export interface ModeDefaults {
   mode_mappings: { heat: TuyaChoice; cool: TuyaChoice; auto: TuyaChoice };
@@ -13,13 +14,13 @@ const SAFE_TEMP_RANGE: TempRange = { min: 16, max: 31, step: 1, scale: 0 };
 
 function parseTempRange(values: string): TempRange {
   try {
-    const v = JSON.parse(values) as Record<string, number>;
-    const scale = v['scale'] ?? 0;
+    const v = JSON.parse(values) as Record<string, number | undefined>;
+    const scale = v.scale ?? 0;
     const divisor = Math.pow(10, scale);
     return {
-      min: (v['min'] ?? 160) / divisor,
-      max: (v['max'] ?? 310) / divisor,
-      step: (v['step'] ?? 1) / divisor,
+      min: (v.min ?? 160) / divisor,
+      max: (v.max ?? 310) / divisor,
+      step: (v.step ?? 1) / divisor,
       scale,
     };
   } catch {
@@ -36,12 +37,12 @@ function parseEnumRange(values: string): string[] {
   }
 }
 
-type ModelProperty = { code: string; typeSpec?: { type?: string; range?: string[] } };
+interface ModelProperty { code: string; typeSpec?: { type?: string; range?: string[] } }
 
 function parseModelProperties(modelJson: string): ModelProperty[] {
   try {
     const parsed = JSON.parse(modelJson) as {
-      services?: Array<{ properties?: ModelProperty[] }>;
+      services?: { properties?: ModelProperty[] }[];
     };
     return (parsed.services ?? []).flatMap(s => s.properties ?? []);
   } catch {
@@ -63,9 +64,10 @@ export function parseFanSpeedFromModel(modelJson: string): { code: string; level
 export function deriveModeDefaults(modeRange: string[]): ModeDefaults {
   return {
     mode_mappings: {
-      heat: modeRange.includes('Heat') ? 'Heat' : 'none',
-      cool: modeRange.includes('Cool') ? 'Cool' : 'none',
-      auto: modeRange.includes('Auto') ? 'Auto' : 'none',
+      heat: modeRange.includes('Heat') ? 'Heat' : 'None',
+      cool: modeRange.includes('Cool') ? 'Cool' : 'None',
+      // 'Auto' is not a Meaco mode option; the HomeKit Auto state defaults to hidden.
+      auto: 'None',
     },
     expose_dry_mode_switch: modeRange.includes('Dyr'),
     expose_fan_only_mode_switch: modeRange.includes('Fan'),
@@ -103,7 +105,7 @@ export function parseSpecification(spec: TuyaSpecResponse): CapabilityProfile {
     hasDry: modeRange.includes('wet') || modeRange.includes('Dyr'),
     hasFanOnly: modeRange.includes('wind') || modeRange.includes('Fan'),
     hasSwing: allSpecs.has('swing') || allSpecs.has('shake'),
-    hasSleep: allSpecs.has('sleep') || allSpecs.has('sleep_mode'),
+    hasSleep: allSpecs.has('sleep') || allSpecs.has('sleep_mode') || allSpecs.has('Sleep'),
     fanSpeedLevels,
     tempRange,
     currentTempRange,

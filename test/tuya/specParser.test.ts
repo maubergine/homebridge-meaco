@@ -60,6 +60,19 @@ describe('parseSpecification', () => {
     expect(profile.hasPower).toBe(false);
   });
 
+  it('detects the capitalised Meaco "Sleep" datapoint code', () => {
+    const spec = loadFixture('meacocool-mc-synthetic.json');
+    // Real Meaco firmware reports the code as "Sleep", not "sleep"
+    spec.result.functions = spec.result.functions.map((f) =>
+      f.code === 'sleep' ? { ...f, code: 'Sleep' } : f,
+    );
+    spec.result.status = spec.result.status.map((f) =>
+      f.code === 'sleep' ? { ...f, code: 'Sleep' } : f,
+    );
+    const profile = parseSpecification(spec);
+    expect(profile.hasSleep).toBe(true);
+  });
+
   it('sets currentTempRange when temp_current is present in status', () => {
     const spec = loadFixture('meacocool-mc-synthetic.json');
     const profile = parseSpecification(spec);
@@ -121,20 +134,20 @@ describe('parseFanSpeedFromModel', () => {
 describe('deriveModeDefaults', () => {
   it('maps Cool and Heat, exposes dry and fan switches for the example device', () => {
     const defaults = deriveModeDefaults(['Cool', 'Dyr', 'Fan', 'Heat']);
-    expect(defaults.mode_mappings).toEqual({ heat: 'Heat', cool: 'Cool', auto: 'none' });
+    expect(defaults.mode_mappings).toEqual({ heat: 'Heat', cool: 'Cool', auto: 'None' });
     expect(defaults.expose_dry_mode_switch).toBe(true);
     expect(defaults.expose_fan_only_mode_switch).toBe(true);
   });
 
-  it('maps Auto when present in range', () => {
-    const defaults = deriveModeDefaults(['Cool', 'Auto']);
-    expect(defaults.mode_mappings.auto).toBe('Auto');
+  it('defaults the HomeKit Auto state to None (Auto is not a Meaco mode)', () => {
+    const defaults = deriveModeDefaults(['Cool', 'Heat']);
+    expect(defaults.mode_mappings.auto).toBe('None');
     expect(defaults.expose_dry_mode_switch).toBe(false);
   });
 
-  it('returns all none for empty range', () => {
+  it('returns all None for empty range', () => {
     const defaults = deriveModeDefaults([]);
-    expect(defaults.mode_mappings).toEqual({ heat: 'none', cool: 'none', auto: 'none' });
+    expect(defaults.mode_mappings).toEqual({ heat: 'None', cool: 'None', auto: 'None' });
     expect(defaults.expose_dry_mode_switch).toBe(false);
     expect(defaults.expose_fan_only_mode_switch).toBe(false);
   });

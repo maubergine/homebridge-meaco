@@ -132,22 +132,22 @@
                   "title": "Heat",
                   "type": "string",
                   "default": "Heat",
-                  "enum": ["Heat", "Cool", "Auto", "Fan", "none"],
-                  "enumNames": ["Heat", "Cool", "Auto", "Fan", "None (hidden)"]
+                  "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
+                  "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]
                 },
                 "cool": {
                   "title": "Cool",
                   "type": "string",
                   "default": "Cool",
-                  "enum": ["Heat", "Cool", "Auto", "Fan", "none"],
-                  "enumNames": ["Heat", "Cool", "Auto", "Fan", "None (hidden)"]
+                  "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
+                  "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]
                 },
                 "auto": {
                   "title": "Auto",
                   "type": "string",
-                  "default": "none",
-                  "enum": ["Heat", "Cool", "Auto", "Fan", "none"],
-                  "enumNames": ["Heat", "Cool", "Auto", "Fan", "None (hidden)"]
+                  "default": "None",
+                  "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
+                  "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]
                 }
               }
             },
@@ -177,21 +177,6 @@
             "title": "Request Timeout (ms)",
             "type": "integer",
             "default": 8000
-          },
-          "max_command_retries": {
-            "title": "Max Command Verify Retries",
-            "type": "integer",
-            "default": 5
-          },
-          "command_verify_interval_ms": {
-            "title": "Command Verify Interval (ms)",
-            "type": "integer",
-            "default": 1000
-          },
-          "debug_logging": {
-            "title": "Enable Debug Logging",
-            "type": "boolean",
-            "default": false
           }
         }
       }
@@ -200,6 +185,6 @@
   "layout": [
     { "type": "section", "title": "Cloud Credentials", "expandable": false, "items": ["cloud_credentials.tuya_region", "cloud_credentials.tuya_access_key", "cloud_credentials.tuya_secret_key"] },
     { "type": "section", "title": "Devices", "expandable": false, "items": [{ "key": "devices", "type": "array", "items": ["devices[].tuya_device_id", "devices[].enabled", "devices[].display_name", "devices[].display_type", "devices[].temperature_unit", "devices[].expose_child_lock", "devices[].expose_swing_control", "devices[].expose_sleep_mode_switch", "devices[].expose_fan_speed", "devices[].expose_dry_mode_switch", "devices[].mode_mappings.heat", "devices[].mode_mappings.cool", "devices[].mode_mappings.auto", "devices[].polling_interval_seconds", "devices[].unresponsive_after_failures"] }] },
-    { "type": "section", "title": "Advanced", "expandable": true, "expanded": false, "items": ["advanced_settings.request_timeout_ms", "advanced_settings.max_command_retries", "advanced_settings.command_verify_interval_ms", "advanced_settings.debug_logging"] }
+    { "type": "section", "title": "Advanced", "expandable": true, "expanded": false, "items": ["advanced_settings.request_timeout_ms"] }
   ]
 }

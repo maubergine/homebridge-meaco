@@ -12,8 +12,8 @@ A [Homebridge](https://homebridge.io) plugin for Meaco air conditioners, exposin
 
 ## Requirements
 
-- Node.js >= 20
-- Homebridge ^1.8.0 || ^2.0.0
+- Node.js >= 22
+- Homebridge ^2.0.0
 - A Tuya IoT Platform cloud project with OpenAPI access
 
 ## Installation
@@ -28,6 +28,10 @@ If you haven't already done so, you will need to create a [Tuya IoT Cloud](https
 containing your device(s). Your cloud project will have an access key and a secret key, and your device will be given a virtual device id.
 You will need these three values in order to configure this plugin. The TuyAPI project has [some good instructions](https://github.com/codetheweb/tuyapi/blob/master/docs/SETUP.md#listing-tuya-devices-from-the-tuya-smart-or-smart-life-apps) on how to set this all up. Note that this may require that you
 set up your device via the Tuya Smart app and not the BlissHome app, but this does not reduce the functionality of your device.
+
+You will need to log into the Tuya developer platform and under Cloud->Project Management->All Devices->{Your device} 
+click the edit button and change the Control Instruction Mode from "Standard Instruction" to "DP Instruction" otherwise 
+clashes between the Meaco configuration and the standard instruction set will prevent commands from being executed.
 
 ## Configuration
 

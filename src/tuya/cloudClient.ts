@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 
 import { TUYA_REGIONS } from '../settings.js';
 import type { TuyaRegion } from '../settings.js';
+
 import type {
   TuyaCloudDevice,
   TuyaDeviceInfoResponse,
@@ -64,7 +65,7 @@ export class CloudClient {
     params.sort();
     const data = await this.request<TuyaDeviceListResponse>(
       'GET',
-      `/v2.0/cloud/thing/device?${params}`,
+      `/v2.0/cloud/thing/device?${params.toString()}`,
     );
     return data.result;
   }
@@ -129,7 +130,7 @@ export class CloudClient {
     }
 
     if (!data.success) {
-      const msg = (data as Record<string, unknown>)['msg'] as string | undefined;
+      const msg = (data as Record<string, unknown>).msg as string | undefined;
       throw new Error(`Tuya API error ${data.code ?? 'unknown'}: ${msg ?? 'request failed'}`);
     }
 
