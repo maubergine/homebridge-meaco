@@ -100,9 +100,9 @@ export class AirConditionerAccessory extends BaseAccessory {
       return;
     }
     const dpCode = this.map.resolve('sleep') ?? 'sleep';
-    const svc = this.getOrAddService(Service.Switch, 'sleep');
+    const svc = this.getOrAddService(Service.Switch, 'sleep', 'Sleep Mode');
     this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
-    svc.getCharacteristic(Characteristic.Name)?.setValue('Sleep Mode');
+    svc.setCharacteristic(Characteristic.ConfiguredName, 'Sleep Mode');
     svc.getCharacteristic(Characteristic.On)
       .onGet(() => !!this.stateCache.state[dpCode])
       .onSet(async (value) => {
@@ -123,8 +123,9 @@ export class AirConditionerAccessory extends BaseAccessory {
       this.removeService(Service.Switch, 'dry');
       return;
     }
-    const svc = this.getOrAddService(Service.Switch, 'dry');
-    svc.getCharacteristic(Characteristic.Name)?.setValue('Dry Mode');
+    const svc = this.getOrAddService(Service.Switch, 'dry', 'Dry Mode');
+    this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
+    svc.setCharacteristic(Characteristic.ConfiguredName, 'Dry Mode');
     svc.getCharacteristic(Characteristic.On)
       .onGet(() => this.stateCache.state['mode'] === 'Dyr')
       .onSet(async (value) => { await this.testSetDryMode(value as boolean); });
@@ -136,8 +137,9 @@ export class AirConditionerAccessory extends BaseAccessory {
       this.removeService(Service.Switch, 'fan');
       return;
     }
-    const svc = this.getOrAddService(Service.Switch, 'fan');
-    svc.getCharacteristic(Characteristic.Name)?.setValue('Fan Only');
+    const svc = this.getOrAddService(Service.Switch, 'fan', 'Fan Only');
+    this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
+    svc.setCharacteristic(Characteristic.ConfiguredName, 'Fan Only');
     svc.getCharacteristic(Characteristic.On)
       .onGet(() => this.stateCache.state['mode'] === 'Fan')
       .onSet(async (value) => { await this.testSetFanMode(value as boolean); });
@@ -146,6 +148,12 @@ export class AirConditionerAccessory extends BaseAccessory {
   private setupHeaterCoolerService(): void {
     const { Service, Characteristic } = this.hap;
     const svc = this.getOrAddService(Service.HeaterCooler);
+
+    // Make the HeaterCooler the accessory's primary service so its controls
+    // (child lock, fan speed, etc.) surface at the accessory's top level rather
+    // than being buried behind a per-service sub-page. The Switch services
+    // (sleep/dry/fan-only) are linked to it below in their own setup methods.
+    svc.setPrimaryService(true);
 
     // Active (power on/off)
     svc.getCharacteristic(Characteristic.Active)
@@ -220,40 +228,53 @@ export class AirConditionerAccessory extends BaseAccessory {
         });
     }
 
-    // LockPhysicalControls (child lock)
+    // LockPhysicalControls (child lock) — lives on the HeaterCooler service
     if (this.config.expose_child_lock) {
+      const lockGet = () => (this.stateCache.state['lock'] ? 1 : 0);
+      const lockSet = async (value: unknown) => {
+        const locked = (value as number) === 1;
+        this.stateCache.optimisticSet('lock', locked);
+        try {
+          await this.postCommand(this.config.tuya_device_id, 'lock', locked);
+        } catch (err) {
+          this.stateCache.revertOptimistic('lock');
+          throw err;
+        }
+      };
       svc.getCharacteristic(Characteristic.LockPhysicalControls)
-        .onGet(() => (this.stateCache.state['lock'] ? 1 : 0))
-        .onSet(async (value) => {
-          const locked = (value as number) === 1;
-          this.stateCache.optimisticSet('lock', locked);
-          try {
-            await this.postCommand(this.config.tuya_device_id, 'lock', locked);
-          } catch (err) {
-            this.stateCache.revertOptimistic('lock');
-            throw err;
-          }
-        });
+        .onGet(lockGet)
+        .onSet(lockSet);
     }
 
     const fanSpeedCode = this.map.resolve('fanSpeed');
+    if (this.config.expose_fan_speed && fanSpeedCode === undefined) {
+      this.log.warn('expose_fan_speed is enabled but no fan speed datapoint found in device spec (expected fan_speed_enum, windspeed, or fan_speed)');
+    }
     if (this.config.expose_fan_speed && fanSpeedCode !== undefined) {
+      const levels = this.profile.fanSpeedLevels;
+      if (levels.length === 0) {
+        this.log.warn('expose_fan_speed is enabled but device spec reports no fan speed levels');
+      }
+      const fanSpeedProps = { minValue: 1, maxValue: levels.length, minStep: 1 };
+      const fanSpeedGet = () => {
+        const level = this.stateCache.state[fanSpeedCode] as string | undefined;
+        const index = level !== undefined ? levels.indexOf(level) : -1;
+        return index !== -1 ? index + 1 : 1;
+      };
+      const fanSpeedSet = async (value: unknown) => {
+        const speed = levels[(value as number) - 1] ?? levels[0] ?? '';
+        this.stateCache.optimisticSet(fanSpeedCode, speed);
+        try {
+          await this.postCommand(this.config.tuya_device_id, fanSpeedCode, speed);
+        } catch (err) {
+          this.stateCache.revertOptimistic(fanSpeedCode);
+          throw err;
+        }
+      };
       svc.getCharacteristic(Characteristic.RotationSpeed)
-        .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-        .onGet(() => {
-          const level = this.stateCache.state[fanSpeedCode] as string | undefined;
-          return level !== undefined ? this.map.decodeFanSpeed(level) : 0;
-        })
-        .onSet(async (value) => {
-          const speed = this.map.encodeFanSpeed(value as number);
-          this.stateCache.optimisticSet(fanSpeedCode, speed);
-          try {
-            await this.postCommand(this.config.tuya_device_id, fanSpeedCode, speed);
-          } catch (err) {
-            this.stateCache.revertOptimistic(fanSpeedCode);
-            throw err;
-          }
-        });
+        .setProps(fanSpeedProps)
+        .onGet(fanSpeedGet)
+        .onSet(fanSpeedSet);
     }
   }
 

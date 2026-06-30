@@ -166,17 +166,17 @@ describe('AirConditionerAccessory', () => {
     return { rotChar, postCommand };
   }
 
-  it('fan speed <=50% sends low to fan_speed_enum', async () => {
+  it('index 1 sends low to fan_speed_enum', async () => {
     const { rotChar, postCommand } = makeFanSpeedAccy();
     expect(rotChar).toBeDefined();
-    await rotChar!.invokeSet(30);
+    await rotChar!.invokeSet(1);
     expect(postCommand).toHaveBeenCalledWith('dev1', 'fan_speed_enum', 'low');
   });
 
-  it('fan speed >50% sends high to fan_speed_enum', async () => {
+  it('index 3 sends high to fan_speed_enum', async () => {
     const { rotChar, postCommand } = makeFanSpeedAccy();
     expect(rotChar).toBeDefined();
-    await rotChar!.invokeSet(75);
+    await rotChar!.invokeSet(3);
     expect(postCommand).toHaveBeenCalledWith('dev1', 'fan_speed_enum', 'high');
   });
 });

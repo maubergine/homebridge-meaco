@@ -58,24 +58,6 @@ describe('DatapointMap', () => {
     expect(map.decodeCurrentTemp(220)).toBeCloseTo(22.0);
   });
 
-  it('encodes fan speed: HomeKit 0-100 → nearest Tuya level', () => {
-    const map = new DatapointMap(MOCK_PROFILE);
-    expect(map.encodeFanSpeed(0)).toBe('low');
-    expect(map.encodeFanSpeed(33)).toBe('low');
-    expect(map.encodeFanSpeed(50)).toBe('mid');
-    expect(map.encodeFanSpeed(75)).toBe('high');
-    expect(map.encodeFanSpeed(100)).toBe('auto');
-  });
-
-  it('decodes fan speed: Tuya level → HomeKit 0-100', () => {
-    const map = new DatapointMap(MOCK_PROFILE);
-    expect(map.decodeFanSpeed('low')).toBe(0);
-    expect(map.decodeFanSpeed('mid')).toBe(33);
-    expect(map.decodeFanSpeed('high')).toBe(66);
-    expect(map.decodeFanSpeed('auto')).toBe(100);
-    expect(map.decodeFanSpeed('unknown')).toBe(0);
-  });
-
   it('encodes swing boolean', () => {
     const map = new DatapointMap(MOCK_PROFILE);
     expect(map.encodeSwing(true)).toEqual({ code: 'swing', value: true });

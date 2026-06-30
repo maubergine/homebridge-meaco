@@ -13,14 +13,15 @@ export abstract class BaseAccessory {
     this.stateCache = stateCache;
   }
 
-  protected getOrAddService(ServiceClass: WithUUID<typeof Service>, subtype?: string): Service {
+  protected getOrAddService(ServiceClass: WithUUID<typeof Service>, subtype?: string, name?: string): Service {
     const existing = subtype
       ? this.accessory.getServiceById(ServiceClass, subtype)
       : this.accessory.getService(ServiceClass);
     if (existing) return existing;
+    const displayName = name ?? this.accessory.displayName;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return subtype
-      ? this.accessory.addService(ServiceClass as any, this.accessory.displayName, subtype)
+      ? this.accessory.addService(ServiceClass as any, displayName, subtype)
       : this.accessory.addService(ServiceClass as any);
   }
 

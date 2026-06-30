@@ -11,7 +11,7 @@ import type {
 import { PLATFORM_NAME, PLUGIN_NAME, DEFAULTS } from './settings.js';
 import type { TuyaRegion } from './settings.js';
 import { CloudClient } from './tuya/cloudClient.js';
-import { parseSpecification, parseModeRangeFromModel, deriveModeDefaults } from './tuya/specParser.js';
+import { parseSpecification, parseModeRangeFromModel, parseFanSpeedFromModel, deriveModeDefaults } from './tuya/specParser.js';
 import { applyOverrides } from './core/capabilityProfile.js';
 import type { CapabilityOverrides } from './core/capabilityProfile.js';
 import { DatapointMap } from './core/datapointMap.js';
@@ -162,6 +162,16 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         client.getDeviceModel(deviceId).catch(() => null),
       ]);
       const detected = parseSpecification(specResponse);
+      if (modelResponse && detected.fanSpeedLevels.length === 0) {
+        const modelFanSpeed = parseFanSpeedFromModel(modelResponse.result.model);
+        if (modelFanSpeed) {
+          detected.fanSpeedLevels = modelFanSpeed.levels;
+          detected.rawFunctions.set(modelFanSpeed.code, {
+            code: modelFanSpeed.code, desc: '', name: 'Fan Speed', type: 'Enum',
+            values: JSON.stringify({ range: modelFanSpeed.levels }),
+          });
+        }
+      }
       const profile = applyOverrides(detected, overrides?.capability_overrides);
 
       const modeRange = modelResponse

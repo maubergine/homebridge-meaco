@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseSpecification, parseModeRangeFromModel, deriveModeDefaults } from '../../src/tuya/specParser.js';
+import { parseSpecification, parseModeRangeFromModel, parseFanSpeedFromModel, deriveModeDefaults } from '../../src/tuya/specParser.js';
 import type { TuyaSpecResponse } from '../../src/tuya/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -91,6 +91,30 @@ describe('parseModeRangeFromModel', () => {
   it('returns empty array when no mode property exists', () => {
     const noMode = JSON.stringify({ services: [{ properties: [{ code: 'switch', typeSpec: {} }] }] });
     expect(parseModeRangeFromModel(noMode)).toEqual([]);
+  });
+});
+
+describe('parseFanSpeedFromModel', () => {
+  const MODEL_WITH_FAN = JSON.stringify({
+    services: [{
+      properties: [
+        { code: 'mode', typeSpec: { type: 'enum', range: ['Cool', 'Fan'] } },
+        { code: 'fan_speed_enum', typeSpec: { type: 'enum', range: ['Low', 'High'] } },
+      ],
+    }],
+  });
+
+  it('extracts fan speed levels from model JSON', () => {
+    expect(parseFanSpeedFromModel(MODEL_WITH_FAN)).toEqual({ code: 'fan_speed_enum', levels: ['Low', 'High'] });
+  });
+
+  it('returns null when no fan_speed_enum property exists', () => {
+    const noFan = JSON.stringify({ services: [{ properties: [{ code: 'mode', typeSpec: { range: ['Cool'] } }] }] });
+    expect(parseFanSpeedFromModel(noFan)).toBeNull();
+  });
+
+  it('returns null for malformed JSON', () => {
+    expect(parseFanSpeedFromModel('NOT_JSON')).toBeNull();
   });
 });
 

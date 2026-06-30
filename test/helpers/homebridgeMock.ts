@@ -51,6 +51,8 @@ export class MockService {
 
   setCharacteristic(name: string, _value: unknown): this { return this; }
   addOptionalCharacteristic(_name: string): this { return this; }
+  setPrimaryService(_isPrimary?: boolean): this { return this; }
+  addLinkedService(_service: MockService): this { return this; }
 }
 
 export class MockAccessory {

@@ -36,25 +36,28 @@ function parseEnumRange(values: string): string[] {
   }
 }
 
-export function parseModeRangeFromModel(modelJson: string): string[] {
+type ModelProperty = { code: string; typeSpec?: { type?: string; range?: string[] } };
+
+function parseModelProperties(modelJson: string): ModelProperty[] {
   try {
     const parsed = JSON.parse(modelJson) as {
-      services?: Array<{
-        properties?: Array<{
-          code: string;
-          typeSpec?: { range?: string[] };
-        }>;
-      }>;
+      services?: Array<{ properties?: ModelProperty[] }>;
     };
-    for (const service of parsed.services ?? []) {
-      for (const prop of service.properties ?? []) {
-        if (prop.code === 'mode') return prop.typeSpec?.range ?? [];
-      }
-    }
-    return [];
+    return (parsed.services ?? []).flatMap(s => s.properties ?? []);
   } catch {
     return [];
   }
+}
+
+export function parseModeRangeFromModel(modelJson: string): string[] {
+  const prop = parseModelProperties(modelJson).find(p => p.code === 'mode');
+  return prop?.typeSpec?.range ?? [];
+}
+
+export function parseFanSpeedFromModel(modelJson: string): { code: string; levels: string[] } | null {
+  const prop = parseModelProperties(modelJson).find(p => p.code === 'fan_speed_enum');
+  if (!prop?.typeSpec?.range?.length) return null;
+  return { code: prop.code, levels: prop.typeSpec.range };
 }
 
 export function deriveModeDefaults(modeRange: string[]): ModeDefaults {

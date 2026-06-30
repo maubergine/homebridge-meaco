@@ -55,24 +55,6 @@ export class DatapointMap {
     return raw / Math.pow(10, scale);
   }
 
-  encodeFanSpeed(hkPercent: number): string {
-    const levels = this.profile.fanSpeedLevels;
-    if (levels.length === 0) return '';
-    const step = 100 / (levels.length - 1);
-    const index = Math.min(
-      levels.length - 1,
-      Math.floor(hkPercent / step),
-    );
-    return levels[index] ?? levels[0] ?? '';
-  }
-
-  decodeFanSpeed(level: string): number {
-    const levels = this.profile.fanSpeedLevels;
-    const index = levels.indexOf(level);
-    if (index === -1 || levels.length <= 1) return 0;
-    return Math.floor((index / (levels.length - 1)) * 100);
-  }
-
   encodeSwing(on: boolean): { code: string; value: boolean } {
     const code = this.codeMap.get('swing') ?? 'swing';
     return { code, value: on };
