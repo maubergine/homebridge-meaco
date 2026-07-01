@@ -1,3 +1,5 @@
+export type TuyaValue = boolean | number | string;
+
 export interface TuyaFunctionSpec {
   code: string;
   desc: string;
@@ -18,7 +20,7 @@ export interface TuyaSpecResponse {
 
 export interface TuyaStatusItem {
   code: string;
-  value: boolean | number | string;
+  value: TuyaValue;
 }
 
 export interface TuyaDeviceStatusResponse {
@@ -55,8 +57,6 @@ export interface TuyaDeviceInfoResponse {
   success: boolean;
   t: number;
 }
-
-export type TuyaValue = boolean | number | string;
 
 export interface TuyaProductFunctionsResponse {
   result: {

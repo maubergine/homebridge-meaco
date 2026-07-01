@@ -89,7 +89,8 @@ export class CloudClient {
     const token = await this.ensureToken();
     const t = Date.now().toString();
     const nonce = crypto.randomUUID();
-    const bodyStr = body !== undefined ? JSON.stringify(body) : '';
+    const hasBody = body !== undefined;
+    const bodyStr = hasBody ? JSON.stringify(body) : '';
     const sign = this.sign(token, t, nonce, method, path, bodyStr);
 
     const controller = new AbortController();
@@ -111,7 +112,7 @@ export class CloudClient {
           'nonce': nonce,
           'Content-Type': 'application/json',
         },
-        body: body !== undefined ? bodyStr : undefined,
+        body: hasBody ? bodyStr : undefined,
         signal: controller.signal,
       });
     } finally {
@@ -189,14 +190,16 @@ export class CloudClient {
   ): string {
     const contentHash = crypto.createHash('sha256').update(body).digest('hex');
     const stringToSign = [method, contentHash, '', path].join('\n');
-    const str = this.config.accessKey + token + t + nonce + stringToSign;
-    return crypto.createHmac('sha256', this.config.secretKey).update(str).digest('hex').toUpperCase();
+    return this.hmac(this.config.accessKey + token + t + nonce + stringToSign);
   }
 
   private signToken(t: string, nonce: string): string {
     const emptyHash = crypto.createHash('sha256').update('').digest('hex');
     const stringToSign = ['GET', emptyHash, '', '/v1.0/token?grant_type=1'].join('\n');
-    const str = this.config.accessKey + t + nonce + stringToSign;
+    return this.hmac(this.config.accessKey + t + nonce + stringToSign);
+  }
+
+  private hmac(str: string): string {
     return crypto.createHmac('sha256', this.config.secretKey).update(str).digest('hex').toUpperCase();
   }
 

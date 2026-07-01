@@ -3,20 +3,20 @@ import type { PlatformAccessory, Service, Logger, WithUUID } from 'homebridge';
 import type { StateCache } from '../core/stateCache.js';
 
 export abstract class BaseAccessory {
-  protected readonly log: Logger;
-  protected readonly accessory: PlatformAccessory;
-  protected readonly stateCache: StateCache;
+  constructor(
+    protected readonly log: Logger,
+    protected readonly accessory: PlatformAccessory,
+    protected readonly stateCache: StateCache,
+  ) {}
 
-  constructor(log: Logger, accessory: PlatformAccessory, stateCache: StateCache) {
-    this.log = log;
-    this.accessory = accessory;
-    this.stateCache = stateCache;
+  private findService(ServiceClass: WithUUID<typeof Service>, subtype?: string): Service | undefined {
+    return subtype
+      ? this.accessory.getServiceById(ServiceClass, subtype)
+      : this.accessory.getService(ServiceClass);
   }
 
   protected getOrAddService(ServiceClass: WithUUID<typeof Service>, subtype?: string, name?: string): Service {
-    const existing = subtype
-      ? this.accessory.getServiceById(ServiceClass, subtype)
-      : this.accessory.getService(ServiceClass);
+    const existing = this.findService(ServiceClass, subtype);
     if (existing) return existing;
     const displayName = name ?? this.accessory.displayName;
     // HAP's generic addService signature can't be satisfied by a WithUUID service class
@@ -29,9 +29,7 @@ export abstract class BaseAccessory {
   }
 
   protected removeService(ServiceClass: WithUUID<typeof Service>, subtype?: string): void {
-    const svc = subtype
-      ? this.accessory.getServiceById(ServiceClass, subtype)
-      : this.accessory.getService(ServiceClass);
+    const svc = this.findService(ServiceClass, subtype);
     if (svc) this.accessory.removeService(svc);
   }
 }

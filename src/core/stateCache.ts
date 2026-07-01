@@ -5,12 +5,9 @@ export class StateCache {
   lastSuccess = 0;
   consecutiveFailures = 0;
 
-  private readonly threshold: number;
   private readonly preOptimistic = new Map<string, TuyaValue | undefined>();
 
-  constructor(unresponsiveAfterFailures: number) {
-    this.threshold = unresponsiveAfterFailures;
-  }
+  constructor(private readonly threshold: number) {}
 
   isResponding(): boolean {
     return this.consecutiveFailures < this.threshold;

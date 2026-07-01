@@ -28,9 +28,10 @@ export class Poller {
   private schedule(): void {
     if (this.stopped) return;
     this.handle = setTimeout(() => {
-      void this.tick().then(() => {
+      void (async () => {
+        await this.tick();
         this.schedule();
-      });
+      })();
     }, this.intervalMs);
   }
 

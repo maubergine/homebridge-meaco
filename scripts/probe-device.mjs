@@ -89,7 +89,7 @@ for (const d of devices) {
     if (raw) console.log('\n   [raw product functions]\n' + JSON.stringify(product, null, 2));
     const pfns = product.result.functions ?? [];
     const w    = pfns.length ? Math.max(...pfns.map(f => f.code.length)) : 0;
-    console.log(`   product functions (${d.product_id}, ${pfns.length}):`);
+    console.log(`   product functions (${d.productId}, ${pfns.length}):`);
     for (const f of pfns) {
       console.log(`     ${f.code.padEnd(w)}  ${f.type.padEnd(8)} ${f.values}`);
     }

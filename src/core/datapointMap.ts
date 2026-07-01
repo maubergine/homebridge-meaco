@@ -23,16 +23,12 @@ const ALIASES: Record<CanonicalName, string[]> = {
 
 export class DatapointMap {
   private readonly codeMap = new Map<CanonicalName, string>();
-  private readonly profile: CapabilityProfile;
 
-  constructor(profile: CapabilityProfile) {
-    this.profile = profile;
+  constructor(private readonly profile: CapabilityProfile) {
     for (const [canonical, aliases] of Object.entries(ALIASES) as [CanonicalName, string[]][]) {
-      for (const alias of aliases) {
-        if (profile.rawFunctions.has(alias)) {
-          this.codeMap.set(canonical, alias);
-          break;
-        }
+      const alias = aliases.find((a) => profile.rawFunctions.has(a));
+      if (alias !== undefined) {
+        this.codeMap.set(canonical, alias);
       }
     }
   }
@@ -43,18 +39,16 @@ export class DatapointMap {
 
   encodeSetpoint(celsius: number, _unit: 'celsius' | 'fahrenheit'): { code: string; value: number } {
     const code = this.codeMap.get('setpoint') ?? 'temp_set';
-    const scale = this.profile.tempRange.scale;
-    return { code, value: Math.round(celsius * Math.pow(10, scale)) };
+    return { code, value: Math.round(celsius * 10 ** this.profile.tempRange.scale) };
   }
 
   decodeSetpoint(raw: number): number {
-    const scale = this.profile.tempRange.scale;
-    return raw / Math.pow(10, scale);
+    return raw / 10 ** this.profile.tempRange.scale;
   }
 
   decodeCurrentTemp(raw: number): number {
     const scale = this.profile.currentTempRange?.scale ?? this.profile.tempRange.scale;
-    return raw / Math.pow(10, scale);
+    return raw / 10 ** scale;
   }
 
   encodeSwing(on: boolean): { code: string; value: boolean } {

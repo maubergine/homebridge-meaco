@@ -16,7 +16,7 @@ function parseTempRange(values: string): TempRange {
   try {
     const v = JSON.parse(values) as Record<string, number | undefined>;
     const scale = v.scale ?? 0;
-    const divisor = Math.pow(10, scale);
+    const divisor = 10 ** scale;
     return {
       min: (v.min ?? 160) / divisor,
       max: (v.max ?? 310) / divisor,

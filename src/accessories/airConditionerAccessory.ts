@@ -134,10 +134,9 @@ export class AirConditionerAccessory extends BaseAccessory {
   async pollOnce(): Promise<void> {
     try {
       const status = await this.fetchStatus();
-      const statusMap: Record<string, TuyaValue> = {};
-      for (const item of status) {
-        statusMap[item.code] = item.value;
-      }
+      const statusMap: Record<string, TuyaValue> = Object.fromEntries(
+        status.map((item) => [item.code, item.value]),
+      );
       this.stateCache.recordSuccess(statusMap);
     } catch {
       this.stateCache.recordFailure();
@@ -352,16 +351,16 @@ export class AirConditionerAccessory extends BaseAccessory {
     if (!this.stateCache.state.switch) return Characteristic.CurrentHeaterCoolerState.INACTIVE;
     const mode = this.stateCache.state.mode as string | undefined;
     const modes = this.resolvedModes();
-    if (mode && mode === modes.heat) return Characteristic.CurrentHeaterCoolerState.HEATING;
-    if (mode && mode === modes.cool) return Characteristic.CurrentHeaterCoolerState.COOLING;
+    if (mode === modes.heat) return Characteristic.CurrentHeaterCoolerState.HEATING;
+    if (mode === modes.cool) return Characteristic.CurrentHeaterCoolerState.COOLING;
     return Characteristic.CurrentHeaterCoolerState.IDLE;
   }
 
   private getTargetHeaterCoolerState(): number {
     const mode = this.stateCache.state.mode as string | undefined;
     const modes = this.resolvedModes();
-    if (mode && mode === modes.heat) return HK_HEATER_COOLER_HEAT;
-    if (mode && mode === modes.auto) return HK_HEATER_COOLER_AUTO;
+    if (mode === modes.heat) return HK_HEATER_COOLER_HEAT;
+    if (mode === modes.auto) return HK_HEATER_COOLER_AUTO;
     return HK_HEATER_COOLER_COOL;
   }
 
@@ -418,7 +417,7 @@ export class AirConditionerAccessory extends BaseAccessory {
         throw err;
       }
     } else {
-      const restoreMode = this.previousNonSpecialMode ?? (this.resolvedModes().cool ?? 'Cool');
+      const restoreMode = this.previousNonSpecialMode ?? this.resolvedModes().cool ?? 'Cool';
       this.stateCache.optimisticSet('mode', restoreMode);
       try {
         await this.postCommand(this.config.tuya_device_id, 'mode', restoreMode);
@@ -443,7 +442,7 @@ export class AirConditionerAccessory extends BaseAccessory {
         throw err;
       }
     } else {
-      const restoreMode = this.previousNonSpecialMode ?? (this.resolvedModes().cool ?? 'Cool');
+      const restoreMode = this.previousNonSpecialMode ?? this.resolvedModes().cool ?? 'Cool';
       this.stateCache.optimisticSet('mode', restoreMode);
       try {
         await this.postCommand(this.config.tuya_device_id, 'mode', restoreMode);

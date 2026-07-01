@@ -125,7 +125,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         this.log.info(`Skipping disabled device: ${device.name} (${device.id})`);
         continue;
       }
-      await this.setupDevice(device.id, overrides, advanced, client);
+      await this.setupDevice(device.id, overrides, client);
     }
 
     const stale = [...this.accessories.values()];
@@ -154,7 +154,6 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
   private async setupDevice(
     deviceId: string,
     overrides: DeviceOverride | undefined,
-    _advanced: NonNullable<PluginConfig['advanced_settings']>,
     client: CloudClient,
   ): Promise<void> {
     try {
