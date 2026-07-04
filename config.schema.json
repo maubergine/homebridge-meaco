@@ -1,0 +1,190 @@
+{
+  "pluginAlias": "MeacoPlatform",
+  "pluginType": "platform",
+  "singular": true,
+  "strictValidation": true,
+  "fixArrays": true,
+  "headerDisplay": "Control your Meaco air conditioner from Apple Home via Tuya Cloud. You need a Tuya IoT account — see the README for setup instructions.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform Name",
+        "type": "string",
+        "default": "Meaco"
+      },
+      "cloud_credentials": {
+        "title": "Cloud Credentials",
+        "type": "object",
+        "properties": {
+          "tuya_region": {
+            "title": "Tuya Region",
+            "type": "string",
+            "default": "EU",
+            "enum": ["US", "EU", "WEU", "CN", "IN"],
+            "enumNames": ["Americas (US)", "Europe (EU)", "Western Europe", "China (CN)", "India (IN)"]
+          },
+          "tuya_access_key": {
+            "title": "Access Key",
+            "type": "string",
+            "required": true
+          },
+          "tuya_secret_key": {
+            "title": "Secret Key",
+            "type": "string",
+            "required": true
+          }
+        }
+      },
+      "devices": {
+        "title": "Devices",
+        "type": "array",
+        "items": {
+          "title": "Device",
+          "type": "object",
+          "properties": {
+            "tuya_device_id": {
+              "title": "Tuya Device ID",
+              "type": "string",
+              "required": true
+            },
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean",
+              "default": true
+            },
+            "display_name": {
+              "title": "Display Name",
+              "type": "string"
+            },
+            "display_type": {
+              "title": "Display Type",
+              "type": "string",
+              "default": "heater_cooler",
+              "enum": ["heater_cooler", "thermostat", "fan_only"],
+              "enumNames": ["Heater/Cooler (recommended)", "Thermostat", "Fan Only"]
+            },
+            "temperature_unit": {
+              "title": "Temperature Unit",
+              "type": "string",
+              "default": "auto",
+              "enum": ["auto", "celsius", "fahrenheit"],
+              "enumNames": ["Auto (from device)", "Celsius", "Fahrenheit"]
+            },
+            "expose_dry_mode_switch": {
+              "title": "Expose Dry Mode Switch",
+              "type": "boolean",
+              "default": false
+            },
+            "expose_child_lock": {
+              "title": "Expose Child Lock Switch",
+              "type": "boolean",
+              "default": true
+            },
+            "expose_swing_control": {
+              "title": "Expose Swing Control",
+              "type": "boolean",
+              "default": false,
+              "condition": {
+                "functionBody": "return model.display_type !== 'thermostat';"
+              }
+            },
+            "expose_sleep_mode_switch": {
+              "title": "Expose Sleep Mode Switch",
+              "type": "boolean",
+              "default": true
+            },
+            "manufacturer": {
+              "title": "Manufacturer",
+              "type": "string",
+              "default": "Meaco"
+            },
+            "model": {
+              "title": "Model",
+              "type": "string"
+            },
+            "polling_interval_seconds": {
+              "title": "Polling Interval (seconds)",
+              "type": "integer",
+              "default": 30,
+              "minimum": 5,
+              "maximum": 300
+            },
+            "unresponsive_after_failures": {
+              "title": "Mark Unresponsive After N Failures",
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "maximum": 10
+            },
+            "expose_fan_speed": {
+              "title": "Expose Fan Speed Slider",
+              "type": "boolean",
+              "default": true
+            },
+            "mode_mappings": {
+              "title": "Mode Mappings",
+              "type": "object",
+              "expandable": true,
+              "expanded": false,
+              "properties": {
+                "heat": {
+                  "title": "Heat",
+                  "type": "string",
+                  "default": "Heat",
+                  "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
+                  "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]
+                },
+                "cool": {
+                  "title": "Cool",
+                  "type": "string",
+                  "default": "Cool",
+                  "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
+                  "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]
+                },
+                "auto": {
+                  "title": "Auto",
+                  "type": "string",
+                  "default": "None",
+                  "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
+                  "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]
+                }
+              }
+            },
+            "capability_overrides": {
+              "title": "Capability Overrides",
+              "type": "object",
+              "properties": {
+                "has_heat": { "type": "boolean" },
+                "has_dry": { "type": "boolean" },
+                "has_swing": { "type": "boolean" },
+                "has_sleep": { "type": "boolean" },
+                "has_fan_only": { "type": "boolean" },
+                "temp_min": { "type": "number" },
+                "temp_max": { "type": "number" }
+              }
+            }
+          }
+        }
+      },
+      "advanced_settings": {
+        "title": "Advanced Settings",
+        "type": "object",
+        "expandable": true,
+        "expanded": false,
+        "properties": {
+          "request_timeout_ms": {
+            "title": "Request Timeout (ms)",
+            "type": "integer",
+            "default": 8000
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    { "type": "section", "title": "Cloud Credentials", "expandable": false, "items": ["cloud_credentials.tuya_region", "cloud_credentials.tuya_access_key", "cloud_credentials.tuya_secret_key"] },
+    { "type": "section", "title": "Devices", "expandable": false, "items": [{ "key": "devices", "type": "array", "items": ["devices[].tuya_device_id", "devices[].enabled", "devices[].display_name", "devices[].display_type", "devices[].temperature_unit", "devices[].expose_child_lock", "devices[].expose_swing_control", "devices[].expose_sleep_mode_switch", "devices[].expose_fan_speed", "devices[].expose_dry_mode_switch", "devices[].mode_mappings.heat", "devices[].mode_mappings.cool", "devices[].mode_mappings.auto", "devices[].polling_interval_seconds", "devices[].unresponsive_after_failures"] }] },
+    { "type": "section", "title": "Advanced", "expandable": true, "expanded": false, "items": ["advanced_settings.request_timeout_ms"] }
+  ]
+}

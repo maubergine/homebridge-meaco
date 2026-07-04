@@ -1,0 +1,27 @@
+{
+  "_comment": "Real capture from MeacoCool MC Series 10000 PRO (bfd7eb6b01d87805823lyz) — cooling-only, no mode DP",
+  "result": {
+    "category": "kt",
+    "functions": [
+      { "code": "switch",            "desc": "", "name": "switch",            "type": "Boolean", "values": "{}" },
+      { "code": "temp_set",          "desc": "", "name": "temp_set",          "type": "Integer", "values": "{\"unit\":\"℃\",\"min\":16,\"max\":32,\"scale\":0,\"step\":1}" },
+      { "code": "lock",              "desc": "", "name": "lock",              "type": "Boolean", "values": "{}" },
+      { "code": "swing",             "desc": "", "name": "swing",             "type": "Boolean", "values": "{}" },
+      { "code": "temp_unit_convert", "desc": "", "name": "temp_unit_convert", "type": "Enum",    "values": "{\"range\":[\"c\",\"f\"]}" },
+      { "code": "temp_set_f",        "desc": "", "name": "temp_set_f",        "type": "Integer", "values": "{\"unit\":\"℉\",\"min\":61,\"max\":90,\"scale\":0,\"step\":1}" }
+    ],
+    "status": [
+      { "code": "switch",            "desc": "", "name": "switch",            "type": "Boolean", "values": "{}" },
+      { "code": "temp_set",          "desc": "", "name": "temp_set",          "type": "Integer", "values": "{\"unit\":\"℃\",\"min\":16,\"max\":32,\"scale\":0,\"step\":1}" },
+      { "code": "temp_current",      "desc": "", "name": "temp_current",      "type": "Integer", "values": "{\"unit\":\"℃\",\"min\":0,\"max\":99,\"scale\":0,\"step\":1}" },
+      { "code": "lock",              "desc": "", "name": "lock",              "type": "Boolean", "values": "{}" },
+      { "code": "swing",             "desc": "", "name": "swing",             "type": "Boolean", "values": "{}" },
+      { "code": "temp_unit_convert", "desc": "", "name": "temp_unit_convert", "type": "Enum",    "values": "{\"range\":[\"c\",\"f\"]}" },
+      { "code": "fault",             "desc": "", "name": "fault",             "type": "Bitmap",  "values": "{\"label\":[\"Rtemp_fault\",\"IPtemp_fault\",\"Water_FULL\"]}" },
+      { "code": "temp_set_f",        "desc": "", "name": "temp_set_f",        "type": "Integer", "values": "{\"unit\":\"℉\",\"min\":61,\"max\":90,\"scale\":0,\"step\":1}" },
+      { "code": "temp_current_f",    "desc": "", "name": "temp_current_f",    "type": "Integer", "values": "{\"unit\":\"℉\",\"min\":0,\"max\":99,\"scale\":0,\"step\":1}" }
+    ]
+  },
+  "success": true,
+  "t": 1782384642445
+}
