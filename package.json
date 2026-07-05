@@ -1,6 +1,6 @@
 {
   "name": "homebridge-meaco",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": "maubergine",
   "description": "Homebridge plugin for Meaco air conditioners via Tuya Cloud OpenAPI",
   "license": "Apache-2.0",
