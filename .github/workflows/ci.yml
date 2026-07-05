@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [22.x]
+        node-version: [22.x, 24.x]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -27,6 +27,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - uses: actions/upload-artifact@v7
+        if: ${{ !env.ACT }}
         with:
           name: coverage-${{ matrix.node-version }}
           path: coverage/lcov.info
