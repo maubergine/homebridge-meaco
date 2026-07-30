@@ -145,6 +145,20 @@ export class AirConditionerAccessory extends BaseAccessory {
     this.pushState();
   }
 
+  /**
+   * Applies a partial datapoint map pushed by the Tuya Message Service, then
+   * refreshes HomeKit. The cache merges rather than replaces, so a push carrying
+   * only the datapoints that changed layers correctly onto the last known state.
+   *
+   * A push is authoritative device state, so `recordSuccess` clearing the failure
+   * count and any optimistic override is the behaviour we want — if a push races a
+   * command we just sent, the device's own value wins.
+   */
+  applyPushedStatus(changed: Record<string, TuyaValue>): void {
+    this.stateCache.recordSuccess(changed);
+    this.pushState();
+  }
+
   /** Pushes the current cached state to every bound characteristic. */
   pushState(): void {
     for (const refresh of this.refreshers) {

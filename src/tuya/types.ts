@@ -102,3 +102,75 @@ export interface TuyaDeviceModelResponse {
   t: number;
   tid?: string;
 }
+
+// ── Message Service (Pulsar) ──────────────────────────────────────────────────
+
+/** The `code`/`value` pair both report shapes have in common. */
+export interface TuyaPulsarDatapoint {
+  code: string;
+  value: TuyaValue;
+}
+
+/**
+ * One changed datapoint in a protocol 4 status report. Alongside `code`/`value`
+ * Tuya also includes the numeric DP id as a stringified key (e.g. `"1": "true"`),
+ * which we ignore in favour of the code.
+ */
+export interface TuyaPulsarStatusItem extends TuyaPulsarDatapoint {
+  /** Device-side timestamp of the change, in epoch milliseconds. */
+  t?: number;
+}
+
+/** The decrypted `data` object of a device status report (protocol 4). */
+export interface TuyaPulsarStatusData {
+  dataId: string;
+  devId: string;
+  productKey: string;
+  status: TuyaPulsarStatusItem[];
+}
+
+/** One changed datapoint in a protocol 1000 property report. */
+export interface TuyaPulsarPropertyItem extends TuyaPulsarDatapoint {
+  dpId?: number;
+  /** Device-side timestamp of the change, in epoch milliseconds. */
+  time?: number;
+}
+
+/**
+ * The decrypted `data` object of a protocol 1000 property report. Note the
+ * datapoints sit under `bizData`, not at the top level as Tuya's message-type
+ * documentation shows.
+ */
+export interface TuyaPulsarPropertyData {
+  bizCode: string;
+  bizData: {
+    devId: string;
+    dataId: string;
+    productId: string;
+    properties: TuyaPulsarPropertyItem[];
+  };
+  ts: number;
+}
+
+/**
+ * The envelope Tuya sends over the WebSocket. `payload` is base64-encoded JSON whose
+ * `data` field is itself AES-encrypted; `properties.em` names the cipher when it is
+ * anything other than the default ECB mode.
+ */
+export interface TuyaPulsarEnvelope {
+  messageId: string;
+  payload: string;
+  properties?: { em?: string };
+  publishTime?: string;
+  redeliveryCount?: number;
+  key?: string;
+}
+
+/** The base64-decoded `payload`, before `data` is decrypted. */
+export interface TuyaPulsarPayload {
+  data: string;
+  protocol: number;
+  pv: string;
+  sign: string;
+  t: number;
+}

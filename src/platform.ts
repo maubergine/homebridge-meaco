@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 
 import type {
   API,
@@ -9,8 +10,9 @@ import type {
 } from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME, DEFAULTS } from './settings.js';
-import type { TuyaRegion } from './settings.js';
+import type { TuyaPulsarEnv, TuyaRegion } from './settings.js';
 import { CloudClient } from './tuya/cloudClient.js';
+import { PulsarClient, resolveConsumerName } from './tuya/pulsarClient.js';
 import { parseSpecification, parseModeRangeFromModel, parseFanSpeedFromModel, deriveModeDefaults } from './tuya/specParser.js';
 import { applyOverrides } from './core/capabilityProfile.js';
 import type { CapabilityOverrides } from './core/capabilityProfile.js';
@@ -47,14 +49,22 @@ interface PluginConfig extends PlatformConfig {
     tuya_secret_key?: string;
   };
   devices?: DeviceOverride[];
+  use_message_service?: boolean;
+  polling_interval_seconds?: number;
   advanced_settings?: {
     request_timeout_ms?: number;
+    message_service_env?: TuyaPulsarEnv;
+    message_service_subscription?: string;
+    message_service_consumer_name?: string;
   };
 }
 
 export class MeacoPlatform implements DynamicPlatformPlugin {
   private readonly accessories = new Map<string, PlatformAccessory>();
+  /** Routing table for pushed messages, keyed by Tuya device ID. */
+  private readonly accessoriesByDeviceId = new Map<string, AirConditionerAccessory>();
   private cloudClient: CloudClient | null = null;
+  private pulsarClient: PulsarClient | null = null;
   private readonly pollers: Poller[] = [];
 
   constructor(
@@ -67,7 +77,36 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       for (const poller of this.pollers) {
         poller.stop();
       }
+      this.pulsarClient?.stop();
     });
+  }
+
+  /** True when device updates arrive by push and REST polling is only a fallback. */
+  private get pushEnabled(): boolean {
+    return this.config.use_message_service ?? DEFAULTS.useMessageService;
+  }
+
+  /**
+   * Resolves a device's poll interval: per-device override, then the platform
+   * default, then a built-in. With push active the poll is only a reconciliation
+   * safety net, so a floor is applied to stop a polling-era override from burning
+   * through the API allowance.
+   */
+  private resolvePollingInterval(deviceId: string, override: number | undefined): number {
+    const fallback = this.pushEnabled
+      ? DEFAULTS.pushPollingIntervalSeconds
+      : DEFAULTS.pollingIntervalSeconds;
+    const configured = override ?? this.config.polling_interval_seconds ?? fallback;
+    if (!this.pushEnabled) return configured;
+
+    const floored = Math.max(configured, DEFAULTS.pushMinPollingIntervalSeconds);
+    if (floored !== configured) {
+      this.log.info(
+        `Device ${deviceId}: raising poll interval from ${configured}s to ${floored}s — ` +
+        'Message Service is on, so polling is only a fallback.',
+      );
+    }
+    return floored;
   }
 
   configureAccessory(accessory: PlatformAccessory): void {
@@ -89,6 +128,38 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       requestTimeoutMs: advanced.request_timeout_ms ?? DEFAULTS.requestTimeoutMs,
     });
     const client = this.cloudClient;
+
+    // One Pulsar connection serves every device — the subscription is per cloud
+    // project, not per device.
+    if (this.pushEnabled) {
+      // A blank entry in the UI means "use the default suffix", not "use Tuya's
+      // shared subscription" — that is only reached by the fallback below.
+      const configured = advanced.message_service_subscription?.trim() ?? '';
+      const subscription = configured === '' ? DEFAULTS.messageServiceSubscription : configured;
+      this.pulsarClient = new PulsarClient(
+        {
+          region: creds.tuya_region ?? DEFAULTS.region,
+          accessKey: creds.tuya_access_key,
+          secretKey: creds.tuya_secret_key,
+          env: advanced.message_service_env ?? DEFAULTS.messageServiceEnv,
+          subscription,
+          consumerName: resolveConsumerName(advanced.message_service_consumer_name, hostname()),
+        },
+        this.log,
+      );
+      this.pulsarClient.onDeviceStatus((devId, changed) => {
+        const accessory = this.accessoriesByDeviceId.get(devId);
+        if (!accessory) return;
+        this.log.debug(`Push update for ${devId}: ${JSON.stringify(changed)}`);
+        accessory.applyPushedStatus(changed);
+      });
+      // The client applies this only while on the shared default subscription,
+      // where acking a message consumes it for every other consumer too. It has to
+      // decide that, not us: a rejected subscription can demote it at runtime.
+      this.pulsarClient.setDeviceFilter((devId) => this.accessoriesByDeviceId.has(devId));
+    } else {
+      this.log.info('Message Service disabled — falling back to REST polling only.');
+    }
 
     const overridesByDeviceId = new Map<string, DeviceOverride>(
       (this.config.devices ?? []).map(d => [d.tuya_device_id, d]),
@@ -133,6 +204,10 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       this.log.info(`Removing ${stale.length} stale accessory/accessories`);
       this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, stale);
     }
+
+    // Connect last: every device has already been seeded with a REST read, so the
+    // first pushed change lands on top of known-good state rather than an empty cache.
+    this.pulsarClient?.start();
   }
 
   private async persistNewDevices(entries: Pick<DeviceOverride, 'tuya_device_id' | 'enabled' | 'display_name' | 'expose_dry_mode_switch'>[]): Promise<void> {
@@ -233,7 +308,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
           cool: overrides?.mode_mappings?.cool ?? modeDefaults.mode_mappings.cool,
           auto: overrides?.mode_mappings?.auto ?? modeDefaults.mode_mappings.auto,
         },
-        polling_interval_seconds: overrides?.polling_interval_seconds ?? DEFAULTS.pollingIntervalSeconds,
+        polling_interval_seconds: this.resolvePollingInterval(deviceId, overrides?.polling_interval_seconds),
         unresponsive_after_failures: overrides?.unresponsive_after_failures ?? DEFAULTS.unresponsiveAfterFailures,
       };
 
@@ -250,9 +325,16 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         this.api.hap,
       );
 
+      this.accessoriesByDeviceId.set(deviceId, airConditioner);
+
       // Polling and post-command refreshes share one path that updates the cache
       // and pushes the full state to every characteristic/service.
       poller.start(deviceConfig.polling_interval_seconds, () => airConditioner.pollOnce());
+
+      // Push only reports changes made after we connect, so seed current state now.
+      // Without this a device that never changes would show nothing until the first
+      // scheduled poll — which, with push on, can be ten minutes away.
+      await poller.triggerNow();
     } catch (err) {
       this.log.error(`Failed to set up device ${deviceId}: ${String(err)}`);
     }
