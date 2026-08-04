@@ -4,6 +4,7 @@
   "author": "maubergine",
   "description": "Homebridge plugin for Meaco air conditioners via Tuya Cloud OpenAPI",
   "license": "Apache-2.0",
+  "repository": "maubergine/homebridge-meaco",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
