@@ -252,9 +252,8 @@ describe('resolveSubscriptionName', () => {
 });
 
 describe('buildPulsarPassword', () => {
-  it('is the middle 16 chars of md5(accessId + md5(secret))', () => {
-    const md5 = (s: string) => crypto.createHash('md5').update(s).digest('hex');
-    const expected = md5(`${ACCESS_ID}${md5(SECRET)}`).substring(8, 24);
+  it('matches the known Tuya-derived password for the fixture credentials', () => {
+    const expected = 'a66254f131fd032e';
     const password = buildPulsarPassword(ACCESS_ID, SECRET);
     expect(password).toBe(expected);
     expect(password).toHaveLength(16);
