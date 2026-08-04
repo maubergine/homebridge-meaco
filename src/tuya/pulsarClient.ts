@@ -110,6 +110,8 @@ export type DeviceFilter = (devId: string) => boolean;
 // ── Pure helpers (exported for testing) ───────────────────────────────────────
 
 function md5Hex(value: string): string {
+  // codeql[js/weak-cryptographic-algorithm] -- Required by Tuya Pulsar auth contract:
+  // password = middle16(md5(accessId + md5(secretKey))). Changing MD5 breaks interoperability.
   return crypto.createHash('md5').update(value).digest('hex');
 }
 
