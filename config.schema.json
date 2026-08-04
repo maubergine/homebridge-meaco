@@ -36,6 +36,20 @@
           }
         }
       },
+      "use_message_service": {
+        "title": "Use Tuya Message Service (push updates)",
+        "type": "boolean",
+        "default": true,
+        "description": "Receive device changes as they happen over Tuya's Message Service instead of polling for them. This uses far fewer API calls. Requires Message Service to be enabled on your Tuya cloud project — turn this off if your plan does not include it."
+      },
+      "polling_interval_seconds": {
+        "title": "Polling Interval (seconds)",
+        "type": "integer",
+        "default": 600,
+        "minimum": 5,
+        "maximum": 3600,
+        "description": "Default poll interval for all devices. With Message Service on, polling is only a fallback for missed messages — keep this high (600s or more). Intervals below 300s are raised automatically while Message Service is on."
+      },
       "devices": {
         "title": "Devices",
         "type": "array",
@@ -106,9 +120,9 @@
             "polling_interval_seconds": {
               "title": "Polling Interval (seconds)",
               "type": "integer",
-              "default": 30,
               "minimum": 5,
-              "maximum": 300
+              "maximum": 3600,
+              "description": "Overrides the platform default for this device. While Message Service is on, values below 300s are raised to 300s."
             },
             "unresponsive_after_failures": {
               "title": "Mark Unresponsive After N Failures",
@@ -177,6 +191,35 @@
             "title": "Request Timeout (ms)",
             "type": "integer",
             "default": 8000
+          },
+          "message_service_subscription": {
+            "title": "Message Service Subscription Suffix",
+            "type": "string",
+            "default": "meaco",
+            "description": "Suffix of a dedicated subscription created in the Tuya console (Cloud → your project → Message Service → Subscription Management). Tuya names it yourAccessId-<suffix>; enter either the suffix (meaco) or the full name. A dedicated subscription is its own consumer group, so this plugin does not compete for messages with anything else using the same credentials. If Tuya rejects the name — usually because it has not been created — the plugin falls back to the shared default subscription and logs a warning.",
+            "condition": {
+              "functionBody": "return model.use_message_service !== false;"
+            }
+          },
+          "message_service_consumer_name": {
+            "title": "Message Service Consumer Name",
+            "type": "string",
+            "placeholder": "homebridge-meaco@<hostname>",
+            "description": "Name this plugin reports to Tuya, shown in the console's consumer list for the subscription (Message Service → Subscription Management → expand the subscription). Leave blank to use homebridge-meaco@<hostname>, which identifies the machine automatically. Set this to tell two Homebridge instances apart if they share a hostname.",
+            "condition": {
+              "functionBody": "return model.use_message_service !== false;"
+            }
+          },
+          "message_service_env": {
+            "title": "Message Service Environment",
+            "type": "string",
+            "default": "PROD",
+            "enum": ["PROD", "TEST"],
+            "enumNames": ["Production", "Test"],
+            "description": "Which Tuya subscription channel to consume. Production devices publish to Production.",
+            "condition": {
+              "functionBody": "return model.use_message_service !== false;"
+            }
           }
         }
       }
@@ -185,6 +228,6 @@
   "layout": [
     { "type": "section", "title": "Cloud Credentials", "expandable": false, "items": ["cloud_credentials.tuya_region", "cloud_credentials.tuya_access_key", "cloud_credentials.tuya_secret_key"] },
     { "type": "section", "title": "Devices", "expandable": false, "items": [{ "key": "devices", "type": "array", "items": ["devices[].tuya_device_id", "devices[].enabled", "devices[].display_name", "devices[].display_type", "devices[].temperature_unit", "devices[].expose_child_lock", "devices[].expose_swing_control", "devices[].expose_sleep_mode_switch", "devices[].expose_fan_speed", "devices[].expose_dry_mode_switch", "devices[].mode_mappings.heat", "devices[].mode_mappings.cool", "devices[].mode_mappings.auto", "devices[].polling_interval_seconds", "devices[].unresponsive_after_failures"] }] },
-    { "type": "section", "title": "Advanced", "expandable": true, "expanded": false, "items": ["advanced_settings.request_timeout_ms"] }
+    { "type": "section", "title": "Advanced", "expandable": true, "expanded": false, "items": ["use_message_service", "advanced_settings.message_service_subscription", "advanced_settings.message_service_consumer_name", "polling_interval_seconds", "advanced_settings.message_service_env", "advanced_settings.request_timeout_ms"] }
   ]
 }

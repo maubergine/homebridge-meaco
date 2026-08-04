@@ -124,6 +124,47 @@ describe('AirConditionerAccessory', () => {
     expect(postCommand).toHaveBeenCalledWith('dev1', 'switch', true);
   });
 
+  it('applyPushedStatus merges a partial datapoint map into the cache', () => {
+    const { accy, cache } = makeAccy();
+    accy.applyPushedStatus({ temp_set: 200 });
+
+    expect(cache.state['temp_set']).toBe(200);
+    // Datapoints absent from the push are left as they were.
+    expect(cache.state['mode']).toBe('cold');
+    expect(cache.state['temp_current']).toBe(240);
+  });
+
+  it('applyPushedStatus pushes the merged state to HomeKit without a REST read', () => {
+    const { accy, hap, char, fetchStatus } = makeFullAccy({ switch: false, swing: true });
+    accy.applyPushedStatus({ switch: true, swing: false });
+
+    expect(char(hap.Characteristic.Active).lastUpdatedValue).toBe(1);
+    expect(char(hap.Characteristic.SwingMode).lastUpdatedValue).toBe(0);
+    expect(fetchStatus).not.toHaveBeenCalled();
+  });
+
+  it('applyPushedStatus clears the failure count — a push proves the device is alive', () => {
+    const { accy, cache } = makeAccy();
+    cache.recordFailure();
+    cache.recordFailure();
+    cache.recordFailure();
+    expect(cache.isResponding()).toBe(false);
+
+    accy.applyPushedStatus({ switch: true });
+    expect(cache.isResponding()).toBe(true);
+  });
+
+  it('applyPushedStatus overrides an optimistic value — the device is the source of truth', () => {
+    const { accy, cache } = makeAccy();
+    cache.optimisticSet('mode', 'Fan');
+    accy.applyPushedStatus({ mode: 'Cool' });
+
+    expect(cache.state['mode']).toBe('Cool');
+    // The optimistic override is spent, so a later revert cannot resurrect it.
+    cache.revertOptimistic('mode');
+    expect(cache.state['mode']).toBe('Cool');
+  });
+
   it('reverts optimistic update after postCommand throws', async () => {
     const { accy, cache, postCommand } = makeAccy();
     postCommand.mockRejectedValueOnce(new Error('command failed'));
