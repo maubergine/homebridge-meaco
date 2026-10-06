@@ -58,15 +58,6 @@ export interface TuyaDeviceInfoResponse {
   t: number;
 }
 
-export interface TuyaProductFunctionsResponse {
-  result: {
-    category: string;
-    functions: TuyaFunctionSpec[];
-  };
-  success: boolean;
-  t: number;
-}
-
 export interface TuyaCloudDevice {
   id: string;
   name: string;
