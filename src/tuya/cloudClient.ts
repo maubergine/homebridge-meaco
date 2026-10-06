@@ -9,7 +9,6 @@ import type {
   TuyaDeviceListResponse,
   TuyaDeviceModelResponse,
   TuyaDeviceStatusResponse,
-  TuyaProductFunctionsResponse,
   TuyaSpecResponse,
   TuyaStatusItem,
 } from './types.js';
@@ -53,10 +52,6 @@ export class CloudClient {
 
   async getDeviceInfo(deviceId: string): Promise<TuyaDeviceInfoResponse> {
     return this.request<TuyaDeviceInfoResponse>('GET', `/v1.0/devices/${deviceId}`);
-  }
-
-  async getProductFunctions(productId: string): Promise<TuyaProductFunctionsResponse> {
-    return this.request<TuyaProductFunctionsResponse>('GET', `/v1.0/iot-03/products/${productId}/functions`);
   }
 
   async listAllDevices(pageSize = 20, category?: string): Promise<TuyaCloudDevice[]> {
