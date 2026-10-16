@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches: [main, beta]
+    branches: [main]
 
 permissions:
   contents: write # to be able to publish a GitHub release
@@ -13,6 +13,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
       issues: write
@@ -32,4 +33,3 @@ jobs:
       - run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
