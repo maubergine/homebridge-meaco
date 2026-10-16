@@ -23,7 +23,7 @@ The reference projects that informed this design:
 - [`homebridge-melcloud-control`](https://github.com/grzegorz914/homebridge-melcloud-control)
   — rich per-device config schema, display-type pattern, request pacing.
 - [`homebridge-unifi-protect`](https://github.com/hjdhjd/homebridge-unifi-protect)
-  — semantic-release CI/CD, beta channel, repository hygiene.
+  — semantic-release CI/CD, repository hygiene.
 
 ## Goals
 
@@ -34,7 +34,7 @@ The reference projects that informed this design:
   state rather than silently lying.
 - Keep code modular enough that adding a humidifier or heat-capable AC
   later is additive.
-- Ship a polished v1 with full CI/CD, beta channel, and a path to
+- Ship a polished v1 with full CI/CD and a path to
   Homebridge "Verified Plugin" status.
 
 ## Non-goals (v1)
@@ -485,7 +485,7 @@ unifi-protect-style applied at our scale. Four workflows.
 
 ### `.github/workflows/ci.yml`
 
-Runs on every PR and push to `main` / `beta`.
+Runs on every PR and push to `main`.
 
 ```
 strategy: matrix on Node 20.x, 22.x
@@ -503,22 +503,20 @@ in-flight runs.
 
 ### `.github/workflows/release.yml`
 
-Runs on push to `main` and `beta`. Driven by
+Runs on push to `main`. Driven by
 [`semantic-release`](https://semantic-release.gitbook.io). Conventional
 Commits → version bump → changelog → git tag → GitHub release →
-`npm publish`. Two channels:
-
-- **`main`** → `latest` npm dist-tag → stable releases.
-- **`beta`** → `beta` npm dist-tag → pre-release versions like
-  `1.2.0-beta.3`. Users opt in with `npm install homebridge-meaco@beta`.
+`npm publish` to the `latest` dist-tag. The job runs in the `release`
+GitHub environment, which gates publishing.
 
 `.releaserc.json` plugins: `@semantic-release/commit-analyzer`,
 `@semantic-release/release-notes-generator`,
 `@semantic-release/changelog`, `@semantic-release/npm`,
 `@semantic-release/github`, `@semantic-release/git`.
 
-Required secrets: `NPM_TOKEN` (granular npm access token, publish-only,
-scoped to this package). `GITHUB_TOKEN` is auto-provided.
+npm publishing uses trusted publishing (OIDC) bound to this workflow and
+the `release` environment, so no npm token is stored. `GITHUB_TOKEN` is
+auto-provided.
 
 ### `.github/workflows/codeql.yml`
 
@@ -540,7 +538,7 @@ minor bumps. Production dependency updates require manual review.
 - `.github/pull_request_template.md`: short checklist (tests added,
   CHANGELOG considered, captured fixture if Tuya behaviour change).
 - `CODEOWNERS`: just the maintainer.
-- Branch protection on `main` and `beta`: require CI green, require
+- Branch protection on `main`: require CI green, require
   linear history, no force-push.
 
 ### Commit discipline
@@ -603,13 +601,11 @@ model).
 
 ### Day-one release plan
 
-1. **v0.1.0-beta.1** to npm `beta` tag — announce in r/homebridge,
-   ask volunteers with MeacoCool MC units for fixtures + bug reports.
+1. Announce in r/homebridge, ask volunteers with MeacoCool MC units
+   for fixtures + bug reports.
 2. Iterate on captured fixtures, fan-speed band tuning, "Not
    Responding" thresholds, mode-mapping edge cases.
-3. **v1.0.0** to npm `latest` once a beta runs cleanly for ~2 weeks
-   for the maintainer and at least one external user.
-4. Submit to Homebridge "Verified Plugins" list (requires green CI,
+3. Submit to Homebridge "Verified Plugins" list (requires green CI,
    README, screenshot, working install).
 
 ## Future work (parking lot)

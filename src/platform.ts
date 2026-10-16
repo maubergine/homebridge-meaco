@@ -12,10 +12,12 @@ import type {
 import { PLATFORM_NAME, PLUGIN_NAME, DEFAULTS } from './settings.js';
 import type { TuyaPulsarEnv, TuyaRegion } from './settings.js';
 import { CloudClient } from './tuya/cloudClient.js';
+import type { TuyaCloudDevice } from './tuya/types.js';
 import { PulsarClient, resolveConsumerName } from './tuya/pulsarClient.js';
 import { parseSpecification, parseModeRangeFromModel, parseFanSpeedFromModel, deriveModeDefaults } from './tuya/specParser.js';
 import { applyOverrides } from './core/capabilityProfile.js';
 import type { CapabilityOverrides } from './core/capabilityProfile.js';
+import { matchMeacoDevice } from './core/deviceDetection.js';
 import { DatapointMap } from './core/datapointMap.js';
 import { StateCache } from './core/stateCache.js';
 import { Poller } from './core/poller.js';
@@ -166,12 +168,28 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
     );
 
     const allInCategory = await client.listAllDevices(20, 'kt');
-    const discovered = allInCategory.filter(d => d.productName.toLowerCase().startsWith('meaco'));
-    const skipped = allInCategory.length - discovered.length;
+    const configuredIds = new Set(overridesByDeviceId.keys());
+    const discovered: TuyaCloudDevice[] = [];
+    const skipped: TuyaCloudDevice[] = [];
+    for (const d of allInCategory) {
+      const match = matchMeacoDevice(d, configuredIds);
+      if (match) {
+        this.log.debug(`Device ${d.id} (${d.productName}, ${d.productId}) matched by ${match}.`);
+        discovered.push(d);
+      } else {
+        skipped.push(d);
+      }
+    }
     this.log.info(
       `Discovered ${discovered.length} Meaco AC device(s) from Tuya` +
-      (skipped > 0 ? ` (ignored ${skipped} non-Meaco device(s) in category 'kt').` : '.'),
+      (skipped.length > 0 ? ` (ignored ${skipped.length} non-Meaco device(s) in category 'kt').` : '.'),
     );
+    for (const d of skipped) {
+      this.log.info(
+        `Ignored device ${d.id}: product "${d.productName}" (${d.productId}). If this is a Meaco ` +
+        'air conditioner, add its device ID under "devices" in the plugin config and restart.',
+      );
+    }
 
     const newDevices = discovered.filter(d => !overridesByDeviceId.has(d.id));
     if (newDevices.length > 0) {

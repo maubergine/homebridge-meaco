@@ -6,7 +6,8 @@ A [Homebridge](https://homebridge.io) plugin for Meaco air conditioners, exposin
 
 ## Features
 
-- Discovers Meaco air conditioners linked to your Tuya / Smart Life account
+- Discovers Meaco air conditioners linked to your Tuya / Smart Life account, with a
+  config override for models it doesn't yet recognise
 - Exposes each unit to HomeKit as an air conditioner accessory
 - Power, mode and temperature control with optimistic updates
 - Live updates pushed from Tuya's Message Service, so changes made on the unit
@@ -41,7 +42,43 @@ Configure the plugin through the Homebridge UI, or add a platform block to your
 `config.json`. See the plugin settings for the required Tuya credentials
 (access ID, access secret, region and linked account details).
 
-Once first started the plugin should discover your Meaco devices and add them to its own configuration. You will then need to restar
+Once first started the plugin should discover your Meaco devices and add them to its own configuration. You will then need to restart Homebridge.
+
+### Device detection
+
+The plugin looks at every device in Tuya's air conditioner category (`kt`) on your
+account and treats it as a Meaco unit if any of the following hold:
+
+1. **Known product ID** — the Tuya product ID is one of the confirmed Meaco models
+   (MeacoCool MC Series Pro, Meaco Cirro+).
+2. **Meaco product name** — the Tuya product name starts with `Meaco`
+   (e.g. `MeacoCool MC Series 10000 PRO`).
+3. **Meaco model code** — newer ranges report an internal code instead, of the form
+   `A-<range><BTU>K-<variant>` (e.g. `A-Cirro-14k-INV`, `A-COSTCO12K-PRO-CH`). Only
+   known Meaco ranges (Cirro, the Costco-exclusive unit) are accepted, because other
+   brands build on the same Tuya hardware.
+4. **Listed in your config** — the device ID appears under `devices` in the plugin
+   configuration.
+
+Any other `kt` device is ignored, and the Homebridge log names it along with its
+product name and product ID:
+
+```
+Ignored device bf1234567890abcdef: product "A-NewRange-12K-CH" (abcd1234efgh5678). If this is a Meaco air conditioner, add its device ID under "devices" in the plugin config and restart.
+```
+
+If your Meaco unit is ignored, add it yourself:
+
+```json
+"devices": [
+  { "tuya_device_id": "bf1234567890abcdef" }
+]
+```
+
+Please also [open an issue](https://github.com/maubergine/homebridge-meaco/issues)
+quoting the product name and product ID from the log line so the model can be
+recognised automatically. Adding a device that isn't a Meaco unit is at your own
+risk; the plugin assumes Meaco's data points.
 
 ### Push updates (Tuya Message Service)
 

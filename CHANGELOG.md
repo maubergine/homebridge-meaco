@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/maubergine/homebridge-meaco/compare/v1.1.0...v1.2.0) (2026-10-06)
+
+
+### Features
+
+* detect Meaco ACs by product ID and model code, with config override ([#61](https://github.com/maubergine/homebridge-meaco/issues/61)) ([42b600c](https://github.com/maubergine/homebridge-meaco/commit/42b600ca924892d008bb0ab2a5e5b6ee1b400dda)), closes [#55](https://github.com/maubergine/homebridge-meaco/issues/55)
+
 # [1.1.0](https://github.com/maubergine/homebridge-meaco/compare/v1.0.1...v1.1.0) (2026-08-04)
 
 

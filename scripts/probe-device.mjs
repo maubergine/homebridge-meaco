@@ -1,5 +1,6 @@
 /**
- * Live probe: discover all devices via Tuya v2.0 API, then dump status + spec for each.
+ * Live probe: discover all devices via Tuya v2.0 API, then dump status, spec and
+ * thing model for each.
  *
  * Usage:
  *   TUYA_ACCESS_KEY=xxx TUYA_SECRET_KEY=yyy node scripts/probe-device.mjs [--region EU] [--raw]
@@ -83,18 +84,21 @@ for (const d of devices) {
     console.error(`   spec failed: ${err.message}`);
   }
 
-  // Product-level functions (may expose DPs absent from device firmware spec)
+  // Thing model: the product-level data model, which can list DPs absent from
+  // the device spec. This is what the plugin reads for mode and fan speed ranges.
   try {
-    const product = await client.getProductFunctions(d.productId);
-    if (raw) console.log('\n   [raw product functions]\n' + JSON.stringify(product, null, 2));
-    const pfns = product.result.functions ?? [];
-    const w    = pfns.length ? Math.max(...pfns.map(f => f.code.length)) : 0;
-    console.log(`   product functions (${d.productId}, ${pfns.length}):`);
-    for (const f of pfns) {
-      console.log(`     ${f.code.padEnd(w)}  ${f.type.padEnd(8)} ${f.values}`);
+    const modelResp = await client.getDeviceModel(d.id);
+    if (raw) console.log('\n   [raw thing model]\n' + JSON.stringify(modelResp, null, 2));
+    const model = JSON.parse(modelResp.result.model);
+    const props = (model.services ?? []).flatMap(svc => svc.properties ?? []);
+    const w     = props.length ? Math.max(...props.map(p => p.code.length)) : 0;
+    console.log(`   thing model (${model.modelId ?? '—'}, ${props.length} properties):`);
+    for (const p of props) {
+      const { type, ...spec } = p.typeSpec ?? {};
+      console.log(`     ${String(p.abilityId).padStart(3)} ${p.code.padEnd(w)}  ${(p.accessMode ?? '').padEnd(2)} ${String(type).padEnd(7)} ${JSON.stringify(spec)}`);
     }
   } catch (err) {
-    console.error(`   product functions failed: ${err.message}`);
+    console.error(`   thing model failed: ${err.message}`);
   }
 
   console.log('');

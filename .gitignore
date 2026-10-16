@@ -4,3 +4,4 @@ coverage/
 *.js.map
 .DS_Store
 homebridge-debug/
+.idea/
