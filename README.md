@@ -1,6 +1,6 @@
 # homebridge-meaco
 
-[![npm version](https://img.shields.io/npm/v/homebridge-meaco.svg)](https://www.npmjs.com/package/homebridge-meaco)
+[![npm version](https://img.shields.io/npm/v/homebridge-meaco.svg)](https://www.npmjs.com/package/homebridge-meaco) [![CI](https://github.com/maubergine/homebridge-meaco/actions/workflows/ci.yml/badge.svg)](https://github.com/maubergine/homebridge-meaco/actions/workflows/ci.yml)
 
 A [Homebridge](https://homebridge.io) plugin for Meaco air conditioners, exposing them to Apple HomeKit via the Tuya Cloud OpenAPI.
 
