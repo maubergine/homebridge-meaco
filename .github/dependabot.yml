@@ -5,6 +5,11 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # coverage-v8 pins vitest as an exact peer, so they must move together
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       dev-patches:
         dependency-type: development
         update-types:
