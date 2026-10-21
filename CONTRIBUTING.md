@@ -1,9 +1,14 @@
 # Contributing
 
+homebridge-meaco is a Homebridge plugin for Meaco air conditioners, using the Tuya Cloud OpenAPI.
+
+Bug reports and feature requests are welcome as [issues](https://github.com/maubergine/homebridge-meaco/issues). Pull requests are
+welcome too; CI on a pull request from a fork may wait for the maintainer to approve it.
+
 ## Dev setup
 
 ```bash
-git clone https://github.com/<your-org>/homebridge-meaco
+git clone https://github.com/maubergine/homebridge-meaco
 cd homebridge-meaco
 npm install
 mkdir homebridge-debug
@@ -11,16 +16,25 @@ mkdir homebridge-debug
 npm run watch   # builds, links, starts Homebridge with nodemon
 ```
 
-## Commit messages
+## Commits
 
-This repo uses Conventional Commits enforced by commitlint:
+Use [Conventional Commits](https://www.conventionalcommits.org/): `fix:`, `feat:`, `chore:`, `docs:` and so on. They
+decide the next version: `fix` releases a patch, `feat` a minor version, and a breaking change a major one. CI checks
+every commit (`commitlint.yml`). To check them locally before you push:
 
-- `feat(scope):` — new feature → minor bump
-- `fix(scope):` — bug fix → patch bump
-- `chore(deps):` — dependency update
-- `test:` — test-only changes
-- `docs:` — documentation only
-- `refactor:` — no behaviour change
+```sh
+npm install   # installs commitlint and turns on .githooks/commit-msg
+```
 
-`BREAKING CHANGE:` in the footer triggers a major bump.
+Commits to `main` must be signed.
 
+## Tests
+
+```sh
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+These are the steps `ci.yml` runs on Node 22 and 24.
