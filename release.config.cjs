@@ -1,5 +1,6 @@
 // semantic-release config (.github/workflows/release.yml). Versions come from Conventional Commits: fix → patch,
 // feat → minor, a breaking change → major. chore, ci, docs, test and refactor don't release.
+// Dependabot commits production dependency bumps as fix(deps) (so they release) and dev ones as chore(deps).
 //
 // First release: tag the version already shipped (git tag v<x.y.z> on main) so numbering continues from there.
 module.exports = {
