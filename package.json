@@ -38,7 +38,6 @@
     "eslint": "^10.6.0",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import-x": "^4.17.1",
-    "husky": "^9.0.0",
     "nock": "^15.0.1",
     "nodemon": "^3.1.0",
     "semantic-release": "^25.0.5",
@@ -53,8 +52,10 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "prepare": "husky",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "commitlint": "commitlint",
+    "semantic-release": "semantic-release"
   },
   "files": [
     "dist",

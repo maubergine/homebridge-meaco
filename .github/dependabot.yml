@@ -1,9 +1,23 @@
 version: 2
 updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - dependencies
+      - github-actions
+
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
     groups:
       # coverage-v8 pins vitest as an exact peer, so they must move together
       vitest:
@@ -14,9 +28,3 @@ updates:
         dependency-type: development
         update-types:
           - patch
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "ci"
