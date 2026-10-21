@@ -1,3 +1,15 @@
+## [1.2.1](https://github.com/maubergine/homebridge-meaco/compare/v1.2.0...v1.2.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **commitlint:** accept Dependabot's grouped update titles ([#76](https://github.com/maubergine/homebridge-meaco/issues/76)) ([3149209](https://github.com/maubergine/homebridge-meaco/commit/31492092a4b2c42c8511622bd370d865b8592e05))
+
+
+### Reverts
+
+* accept Dependabot's grouped update titles ([#77](https://github.com/maubergine/homebridge-meaco/issues/77)) ([34153a2](https://github.com/maubergine/homebridge-meaco/commit/34153a2ed42135d33468e4f849eb0d03198588cb)), closes [#75](https://github.com/maubergine/homebridge-meaco/issues/75)
+
 # [1.2.0](https://github.com/maubergine/homebridge-meaco/compare/v1.1.0...v1.2.0) (2026-10-06)
 
 
