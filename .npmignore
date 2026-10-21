@@ -7,5 +7,6 @@ tsconfig*.json
 nodemon.json
 *.test.ts
 coverage/
-.husky/
+.githooks/
 commitlint.config.cjs
+release.config.cjs
