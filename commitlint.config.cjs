@@ -2,13 +2,8 @@
 // config-conventional's header-max-length (which counts the suffix) is replaced by a rule that ignores it.
 const MAX_HEADER = 100;
 
-// Dependabot capitalises grouped updates' titles ("chore(deps): Bump the dev-patches group with 2 updates") whatever
-// the configured prefix, and config-conventional rejects a sentence-case subject. Let just those through.
-const DEPENDABOT_GROUP = /^chore\((deps|ci)\): Bump the \S+ group\b/;
-
 module.exports = {
   extends: ["@commitlint/config-conventional"],
-  ignores: [(message) => DEPENDABOT_GROUP.test(message)],
   plugins: [{
     rules: {
       "header-max-length-before-pr-number": ({ header }, when, max) => {
