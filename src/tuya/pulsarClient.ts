@@ -366,7 +366,8 @@ export function parsePulsarMessage(raw: unknown, secretKey: string): ParsedPulsa
 
 // ── Client ────────────────────────────────────────────────────────────────────
 
-const defaultSocketFactory: PulsarSocketFactory = (url, headers) =>
+/** The real `ws` transport. Exported so tests can exercise it against a local server. */
+export const defaultSocketFactory: PulsarSocketFactory = (url, headers) =>
   new WebSocket(url, { headers, handshakeTimeout: HANDSHAKE_TIMEOUT_MS, autoPong: false });
 
 /**
