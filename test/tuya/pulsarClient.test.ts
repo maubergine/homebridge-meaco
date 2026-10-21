@@ -1,10 +1,17 @@
 import crypto from 'node:crypto';
+import { once } from 'node:events';
+import type { IncomingMessage } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { WebSocketServer } from 'ws';
+import type { VerifyClientCallbackAsync, WebSocket } from 'ws';
 
+import { TUYA_PULSAR_URLS } from '../../src/settings.js';
 import {
   PulsarClient,
   buildPulsarPassword,
+  defaultSocketFactory,
   buildPulsarTopicUrl,
   decryptPulsarData,
   handshakeRejectionStatus,
@@ -1000,5 +1007,127 @@ describe('PulsarClient message ordering', () => {
 
     expect(seen).toEqual([{ mode: 'Cool' }, { temp_set: 200 }]);
     client.stop();
+  });
+});
+
+// ── Real transport ───────────────────────────────────────────────────────────
+// Everything above drives the client through FakeSocket, so none of it loads `ws`. These run the real socket
+// factory against a local server, so a `ws` upgrade that changes the parts we depend on fails here.
+
+describe('PulsarClient over a real ws socket', () => {
+  let server: WebSocketServer;
+  let origin: string;
+  let client: PulsarClient | null = null;
+
+  async function listen(verifyClient?: VerifyClientCallbackAsync): Promise<void> {
+    server = new WebSocketServer({ host: '127.0.0.1', port: 0, ...(verifyClient ? { verifyClient } : {}) });
+    await once(server, 'listening');
+    origin = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+
+  /** A client on the real transport, pointed at the local server instead of Tuya. */
+  function startClient(consumerName?: string) {
+    const log = createCapturingLogger();
+    client = new PulsarClient(
+      { region: 'EU', accessKey: ACCESS_ID, secretKey: SECRET, env: 'PROD', ...(consumerName ? { consumerName } : {}) },
+      log,
+      (url, headers) => defaultSocketFactory(url.replace(TUYA_PULSAR_URLS.EU, `${origin}/`), headers),
+    );
+    const handler = vi.fn();
+    client.onDeviceStatus(handler);
+    client.start();
+    return { log, handler };
+  }
+
+  async function nextConnection(): Promise<{ socket: WebSocket; request: IncomingMessage }> {
+    const [socket, request] = (await once(server, 'connection')) as [WebSocket, IncomingMessage];
+    return { socket, request };
+  }
+
+  beforeEach(() => { vi.useRealTimers(); });
+
+  afterEach(async () => {
+    client?.stop();
+    client = null;
+    for (const socket of server.clients) socket.terminate();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  it('opens the topic with the credentials as handshake headers', async () => {
+    await listen();
+    const connection = nextConnection();
+    startClient();
+    const { request } = await connection;
+
+    expect(request.url).toMatch(/^\/ws\/v2\/consumer\/persistent\/abc123accessid\/out\/event\//);
+    expect(request.headers.username).toBe(ACCESS_ID);
+    expect(request.headers.password).toBe(buildPulsarPassword(ACCESS_ID, SECRET));
+  });
+
+  it('hands a pushed frame to the handler and acks it on the same socket', async () => {
+    await listen();
+    const connection = nextConnection();
+    const { handler, log } = startClient();
+    const { socket } = await connection;
+    // Wait for the client's side to open too: a frame published before then reads as startup backlog and is dropped.
+    await vi.waitFor(() => { expect(log.at('info').some((line) => line.startsWith('Connected'))).toBe(true); });
+
+    const ack = once(socket, 'message');
+    socket.send(makeFrame(STATUS_BODY, { messageId: 'real-1' }));
+
+    const [data] = (await ack) as [Buffer];
+    expect(JSON.parse(data.toString('utf-8'))).toEqual({ messageId: 'real-1' });
+    expect(handler).toHaveBeenCalledWith('dev1', { switch: true, temp_set: 240 });
+  });
+
+  it('answers a server ping with one pong carrying the access id', async () => {
+    await listen();
+    const connection = nextConnection();
+    startClient();
+    const { socket } = await connection;
+    const pongs: string[] = [];
+    socket.on('pong', (data: Buffer) => pongs.push(data.toString('utf-8')));
+
+    socket.ping('probe');
+
+    // With autoPong on, ws would echo 'probe' back before our listener's pong arrives.
+    await vi.waitFor(() => { expect(pongs).toContain(ACCESS_ID); });
+    expect(pongs).toEqual([ACCESS_ID]);
+  });
+
+  it('sends its keep-alive ping body to the server', async () => {
+    await listen();
+    const connection = nextConnection();
+    const socket = defaultSocketFactory(origin, {});
+    const { socket: serverSide } = await connection;
+    await vi.waitFor(() => { expect(socket.readyState).toBe(1); });
+
+    const ping = once(serverSide, 'ping');
+    socket.ping(ACCESS_ID);
+
+    const [data] = (await ping) as [Buffer];
+    expect(data.toString('utf-8')).toBe(ACCESS_ID);
+    socket.terminate();
+  });
+
+  it('reads the status of a refused handshake from the ws error and degrades', async () => {
+    await listen((_info, callback) => { callback(false, 400); });
+    const { log } = startClient('meaco-test');
+
+    await vi.waitFor(() => { expect(client?.consumerName).toBeNull(); });
+    expect(log.at('warn').some((line) => line.includes('HTTP 400'))).toBe(true);
+  });
+
+  it('closes the connection when stopped', async () => {
+    await listen();
+    const connection = nextConnection();
+    startClient();
+    const { socket } = await connection;
+    await vi.waitFor(() => { expect(socket.readyState).toBe(socket.OPEN); });
+
+    const closed = once(socket, 'close');
+    client?.stop();
+
+    await closed;
   });
 });
