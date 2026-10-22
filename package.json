@@ -25,9 +25,6 @@
     "air-conditioner",
     "aircon"
   ],
-  "peerDependencies": {
-    "homebridge": "^2.0.0"
-  },
   "devDependencies": {
     "@commitlint/cli": "^21.2.0",
     "@commitlint/config-conventional": "^21.2.0",
@@ -43,6 +40,7 @@
     "eslint": "^10.6.0",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import-x": "^4.17.1",
+    "homebridge": "^2.0.0",
     "nock": "^15.0.1",
     "nodemon": "^3.1.0",
     "semantic-release": "^25.0.5",
