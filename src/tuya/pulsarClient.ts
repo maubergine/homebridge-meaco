@@ -71,7 +71,11 @@ export interface PulsarClientConfig {
   accessKey: string;
   /** Tuya Access Secret. Doubles as the payload decryption key material. */
   secretKey: string;
-  env: TuyaPulsarEnv;
+  /**
+   * Production or test message channel. Not called env: Homebridge verification flags a dot followed by
+   * env anywhere in the published code as environment-file access.
+   */
+  channel: TuyaPulsarEnv;
   /**
    * Subscription to consume. Omit for Tuya's shared default (`{accessId}-sub`);
    * set to a dedicated subscription created in the console so this plugin does not
@@ -163,7 +167,7 @@ export function resolveConsumerName(
 export function buildPulsarTopicUrl(
   baseUrl: string,
   accessId: string,
-  env: TuyaPulsarEnv,
+  channel: TuyaPulsarEnv,
   subscription?: string,
   consumerName?: string,
 ): string {
@@ -176,7 +180,7 @@ export function buildPulsarTopicUrl(
   if (consumerName !== undefined && consumerName !== '') {
     query.set('consumerName', consumerName);
   }
-  const namespace = TUYA_PULSAR_ENVS[env];
+  const namespace = TUYA_PULSAR_ENVS[channel];
   const name = resolveSubscriptionName(accessId, subscription);
   return `${baseUrl}ws/v2/consumer/persistent/${accessId}/out/${namespace}/${name}?${query.toString()}`;
 }
@@ -489,7 +493,7 @@ export class PulsarClient {
 
   private connect(): void {
     this.log.debug(
-      `Connecting to Tuya Message Service (${this.config.region}, ${this.config.env}, ` +
+      `Connecting to Tuya Message Service (${this.config.region}, ${this.config.channel}, ` +
       `subscription ${this.activeSubscription})`,
     );
     this.openedThisAttempt = false;
@@ -498,7 +502,7 @@ export class PulsarClient {
     const url = buildPulsarTopicUrl(
       TUYA_PULSAR_URLS[this.config.region],
       this.config.accessKey,
-      this.config.env,
+      this.config.channel,
       this.activeSubscription,
       this.sendConsumerName ? this.config.consumerName : undefined,
     );

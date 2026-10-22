@@ -132,7 +132,7 @@ function createCapturingLogger() {
 }
 
 function makeClient(
-  overrides: { env?: 'PROD' | 'TEST'; subscription?: string; consumerName?: string } = {},
+  overrides: { channel?: 'PROD' | 'TEST'; subscription?: string; consumerName?: string } = {},
 ) {
   const sockets: FakeSocket[] = [];
   const headers: Record<string, string>[] = [];
@@ -144,7 +144,7 @@ function makeClient(
       region: 'EU',
       accessKey: ACCESS_ID,
       secretKey: SECRET,
-      env: overrides.env ?? 'PROD',
+      channel: overrides.channel ?? 'PROD',
       ...(overrides.subscription ? { subscription: overrides.subscription } : {}),
       ...(overrides.consumerName ? { consumerName: overrides.consumerName } : {}),
     },
@@ -1029,7 +1029,7 @@ describe('PulsarClient over a real ws socket', () => {
   function startClient(consumerName?: string) {
     const log = createCapturingLogger();
     client = new PulsarClient(
-      { region: 'EU', accessKey: ACCESS_ID, secretKey: SECRET, env: 'PROD', ...(consumerName ? { consumerName } : {}) },
+      { region: 'EU', accessKey: ACCESS_ID, secretKey: SECRET, channel: 'PROD', ...(consumerName ? { consumerName } : {}) },
       log,
       (url, headers) => defaultSocketFactory(url.replace(TUYA_PULSAR_URLS.EU, `${origin}/`), headers),
     );

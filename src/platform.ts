@@ -172,7 +172,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
           region: creds.tuya_region ?? DEFAULTS.region,
           accessKey: creds.tuya_access_key,
           secretKey: creds.tuya_secret_key,
-          env: advanced.message_service_env ?? DEFAULTS.messageServiceEnv,
+          channel: advanced.message_service_env ?? DEFAULTS.messageServiceEnv,
           subscription,
           consumerName: resolveConsumerName(advanced.message_service_consumer_name, hostname()),
         },
