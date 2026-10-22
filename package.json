@@ -5,6 +5,10 @@
   "description": "Homebridge plugin for Meaco air conditioners via Tuya Cloud OpenAPI",
   "license": "Apache-2.0",
   "repository": "maubergine/homebridge-meaco",
+  "homepage": "https://github.com/maubergine/homebridge-meaco#readme",
+  "bugs": {
+    "url": "https://github.com/maubergine/homebridge-meaco/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,6 +19,7 @@
   "keywords": [
     "homebridge-plugin",
     "homebridge",
+    "supports-hap",
     "meaco",
     "tuya",
     "air-conditioner",
@@ -54,14 +59,18 @@
     "test:watch": "vitest",
     "prepare": "git config core.hooksPath .githooks || true",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "pack:local": "scripts/pack-local.sh",
+    "harness": "scripts/harness.sh",
     "commitlint": "commitlint",
     "semantic-release": "semantic-release"
   },
   "files": [
     "dist",
-    "config.schema.json"
+    "config.schema.json",
+    "homebridge-ui"
   ],
   "dependencies": {
+    "@homebridge/plugin-ui-utils": "^2.2.6",
     "ws": "^8.21.1"
   }
 }

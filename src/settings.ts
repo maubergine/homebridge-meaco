@@ -35,8 +35,6 @@ export const DEFAULTS = {
   pollingIntervalSeconds: 30,
   unresponsiveAfterFailures: 3,
   requestTimeoutMs: 8000,
-  maxCommandRetries: 5,
-  commandVerifyIntervalMs: 1000,
   region: 'EU' as TuyaRegion,
   useMessageService: true,
   messageServiceEnv: 'PROD' as TuyaPulsarEnv,

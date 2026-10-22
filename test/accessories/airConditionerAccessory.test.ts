@@ -6,7 +6,7 @@ import { StateCache } from '../../src/core/stateCache.js';
 import { DatapointMap } from '../../src/core/datapointMap.js';
 import { Poller } from '../../src/core/poller.js';
 import type { CapabilityProfile } from '../../src/core/capabilityProfile.js';
-import { createMockLogger, createMockHap, MockAccessory } from '../helpers/homebridgeMock.js';
+import { createMockLogger, createMockHap, MockAccessory, MockHapStatusError, MockHAPStatus } from '../helpers/homebridgeMock.js';
 
 const PROFILE: CapabilityProfile = {
   hasPower: true,
@@ -47,7 +47,7 @@ const DEVICE_CONFIG: DeviceConfig = {
   unresponsive_after_failures: 3,
 };
 
-function makeAccy() {
+function makeAccy(config: Partial<DeviceConfig> = {}) {
   const cache = new StateCache(3);
   cache.recordSuccess({
     switch: true,
@@ -64,6 +64,7 @@ function makeAccy() {
   const fetchStatus = vi.fn().mockResolvedValue([]);
   const log = createMockLogger();
   const hbAccessory = new MockAccessory('Living Room AC', 'uuid-1');
+  const hap = createMockHap();
 
   const accy = new AirConditionerAccessory(
     log as never,
@@ -74,11 +75,17 @@ function makeAccy() {
     poller,
     postCommand,
     fetchStatus,
-    DEVICE_CONFIG,
-    createMockHap() as never,
+    { ...DEVICE_CONFIG, ...config },
+    hap as never,
   );
 
-  return { accy, cache, map, poller, postCommand, fetchStatus, hbAccessory };
+  // Looks up a characteristic on a primary service; the mock keys them by HAP class.
+  const char = (service: string, name: string) =>
+    hbAccessory.getService(service)!.getCharacteristic(hap.Characteristic[name] as never);
+  const hasChar = (service: string, name: string) =>
+    hbAccessory.getService(service)!.characteristics.has(hap.Characteristic[name] as never);
+
+  return { accy, cache, map, poller, postCommand, fetchStatus, hbAccessory, char, hasChar };
 }
 
 describe('AirConditionerAccessory', () => {
@@ -307,6 +314,15 @@ describe('AirConditionerAccessory', () => {
     expect(char(C.RotationSpeed).invokeGet()).toBe(25); // 'mid' is not High -> 25
   });
 
+  it('set handler rejects with SERVICE_COMMUNICATION_FAILURE and reverts when postCommand fails', async () => {
+    const { hap, char, cache, postCommand } = makeFullAccy({ switch: true });
+    postCommand.mockRejectedValueOnce(new Error('cloud down'));
+    const rejection = char(hap.Characteristic.Active).invokeSet(0);
+    await expect(rejection).rejects.toBeInstanceOf(MockHapStatusError);
+    await expect(rejection).rejects.toMatchObject({ hapStatus: MockHAPStatus.SERVICE_COMMUNICATION_FAILURE });
+    expect(cache.state['switch']).toBe(true);
+  });
+
   it('CurrentHeaterCoolerState is INACTIVE when powered off', () => {
     const { hap, char } = makeFullAccy({ switch: false });
     const C = hap.Characteristic;
@@ -477,5 +493,124 @@ describe('AirConditionerAccessory', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('AirConditionerAccessory display types', () => {
+  it('heater_cooler adds a HeaterCooler and no Thermostat or Fanv2', () => {
+    const { hbAccessory } = makeAccy();
+    expect(hbAccessory.getService('HeaterCooler')).toBeDefined();
+    expect(hbAccessory.getService('Thermostat')).toBeUndefined();
+    expect(hbAccessory.getService('Fanv2')).toBeUndefined();
+  });
+
+  it('removes a cached primary service left from a different display type', () => {
+    const cache = new StateCache(3);
+    const hb = new MockAccessory('AC', 'uuid-1');
+    hb.addService('HeaterCooler');
+    new AirConditionerAccessory(
+      createMockLogger() as never, hb as never, cache, new DatapointMap(PROFILE), PROFILE, new Poller(),
+      vi.fn().mockResolvedValue(undefined), vi.fn().mockResolvedValue([]),
+      { ...DEVICE_CONFIG, display_type: 'thermostat' }, createMockHap() as never,
+    );
+    expect(hb.getService('HeaterCooler')).toBeUndefined();
+    expect(hb.getService('Thermostat')).toBeDefined();
+  });
+
+  describe('thermostat', () => {
+    it('reports Off when powered off and Cool when cooling', () => {
+      const { char, cache } = makeAccy({ display_type: 'thermostat' });
+      cache.recordSuccess({ switch: true, mode: 'Cool' });
+      expect(char('Thermostat', 'TargetHeatingCoolingState').invokeGet()).toBe(2);
+      expect(char('Thermostat', 'CurrentHeatingCoolingState').invokeGet()).toBe(2);
+      cache.recordSuccess({ switch: false });
+      expect(char('Thermostat', 'TargetHeatingCoolingState').invokeGet()).toBe(0);
+      expect(char('Thermostat', 'CurrentHeatingCoolingState').invokeGet()).toBe(0);
+    });
+
+    it('Off turns the unit off', async () => {
+      const { accy, postCommand } = makeAccy({ display_type: 'thermostat' });
+      await accy.testSetThermostatTarget(0);
+      expect(postCommand).toHaveBeenCalledWith('dev1', 'switch', false);
+    });
+
+    it('picking Cool while off sets the mode and turns the unit on', async () => {
+      const { accy, cache, postCommand } = makeAccy({ display_type: 'thermostat' });
+      cache.recordSuccess({ switch: false });
+      await accy.testSetThermostatTarget(2);
+      expect(postCommand.mock.calls).toEqual([['dev1', 'mode', 'Cool'], ['dev1', 'switch', true]]);
+    });
+
+    it('picking Cool while on only sets the mode', async () => {
+      const { accy, postCommand } = makeAccy({ display_type: 'thermostat' });
+      await accy.testSetThermostatTarget(2);
+      expect(postCommand.mock.calls).toEqual([['dev1', 'mode', 'Cool']]);
+    });
+
+    it('a target mapped to None sends nothing', async () => {
+      const { accy, postCommand } = makeAccy({ display_type: 'thermostat' });
+      await accy.testSetThermostatTarget(1);
+      expect(postCommand).not.toHaveBeenCalled();
+    });
+
+    it('reverts mode and power when the command fails', async () => {
+      const { accy, cache, postCommand } = makeAccy({ display_type: 'thermostat' });
+      cache.recordSuccess({ switch: false, mode: 'Fan' });
+      postCommand.mockRejectedValueOnce(new Error('offline'));
+      await expect(accy.testSetThermostatTarget(2)).rejects.toThrow('offline');
+      expect(cache.state.mode).toBe('Fan');
+      expect(cache.state.switch).toBe(false);
+    });
+
+    it('TargetTemperature sets the setpoint', async () => {
+      const { char, postCommand } = makeAccy({ display_type: 'thermostat' });
+      expect(char('Thermostat', 'TargetTemperature').invokeGet()).toBe(22);
+      await char('Thermostat', 'TargetTemperature').invokeSet(24);
+      expect(postCommand).toHaveBeenCalledWith('dev1', 'temp_set', 240);
+    });
+
+    it('display units follow the configured unit and ignore HomeKit changes', async () => {
+      const { char, postCommand } = makeAccy({ display_type: 'thermostat', temperature_unit: 'fahrenheit' });
+      const units = char('Thermostat', 'TemperatureDisplayUnits');
+      expect(units.invokeGet()).toBe(1);
+      await units.invokeSet(0);
+      expect(postCommand).not.toHaveBeenCalled();
+    });
+
+    it('adds no fan speed, swing or child lock', () => {
+      const { hasChar } = makeAccy({ display_type: 'thermostat', expose_swing_control: true, expose_fan_speed: true });
+      expect(hasChar('Thermostat', 'RotationSpeed')).toBe(false);
+      expect(hasChar('Thermostat', 'SwingMode')).toBe(false);
+      expect(hasChar('Thermostat', 'LockPhysicalControls')).toBe(false);
+    });
+  });
+
+  describe('fan_only', () => {
+    it('is active only when on and in Fan mode', () => {
+      const { char, cache } = makeAccy({ display_type: 'fan_only' });
+      const active = char('Fanv2', 'Active');
+      cache.recordSuccess({ switch: true, mode: 'Cool' });
+      expect(active.invokeGet()).toBe(0);
+      cache.recordSuccess({ mode: 'Fan' });
+      expect(active.invokeGet()).toBe(1);
+    });
+
+    it('turning on selects Fan mode and powers on', async () => {
+      const { char, postCommand } = makeAccy({ display_type: 'fan_only' });
+      await char('Fanv2', 'Active').invokeSet(1);
+      expect(postCommand.mock.calls).toEqual([['dev1', 'mode', 'Fan'], ['dev1', 'switch', true]]);
+    });
+
+    it('turning off powers the unit off', async () => {
+      const { char, postCommand } = makeAccy({ display_type: 'fan_only' });
+      await char('Fanv2', 'Active').invokeSet(0);
+      expect(postCommand).toHaveBeenCalledWith('dev1', 'switch', false);
+    });
+
+    it('keeps swing and child lock on the fan', () => {
+      const { hasChar } = makeAccy({ display_type: 'fan_only', expose_swing_control: true });
+      expect(hasChar('Fanv2', 'SwingMode')).toBe(true);
+      expect(hasChar('Fanv2', 'LockPhysicalControls')).toBe(true);
+    });
   });
 });

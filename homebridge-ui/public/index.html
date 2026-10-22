@@ -1,0 +1,255 @@
+<div class="card card-body my-3">
+  <h5 class="card-title">Find your air conditioners</h5>
+  <p id="needs-credentials" class="mb-2">
+    Enter your Tuya access key and secret key under <strong>Cloud Credentials</strong> below,
+    then come back here to find the Meaco units on your Tuya cloud project.
+  </p>
+  <p id="has-credentials" class="mb-2" hidden>
+    Adds the Meaco units on your Tuya cloud project to the device list below, with settings
+    detected for each one. For units already in the list, it fills in only the settings you
+    haven't saved yet. Nothing is saved until you review the changes and click Save.
+  </p>
+  <div>
+    <button id="discover" class="btn btn-primary" type="button" disabled>Discover devices</button>
+  </div>
+  <div id="status" class="alert mt-3 mb-0" role="status" hidden></div>
+  <div id="review" class="mt-3" hidden>
+    <h6 class="mb-2">Changes to review</h6>
+    <div id="review-list"></div>
+  </div>
+  <div id="ignored" class="mt-3 small" hidden>
+    <p class="mb-1">
+      These air conditioners weren't recognised as Meaco units. If one is, add its device ID to
+      the device list by hand:
+    </p>
+    <ul id="ignored-list" class="mb-0"></ul>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const PLATFORM = 'MeacoPlatform';
+    const button = document.getElementById('discover');
+    const needsCredentials = document.getElementById('needs-credentials');
+    const hasCredentials = document.getElementById('has-credentials');
+    const status = document.getElementById('status');
+    const ignored = document.getElementById('ignored');
+    const ignoredList = document.getElementById('ignored-list');
+    const review = document.getElementById('review');
+    const reviewList = document.getElementById('review-list');
+    let busy = false;
+
+    // The plugin is singular, so its one block is the platform block. Don't match on
+    // `platform`: the form's working copy leaves it out until the config is saved.
+    const platformBlock = (blocks) => blocks.find((b) => b.platform === PLATFORM) ?? blocks[0];
+    const credentialsOf = (block) => block?.cloud_credentials ?? {};
+    const hasKeys = (block) =>
+      Boolean(credentialsOf(block).tuya_access_key?.trim() && credentialsOf(block).tuya_secret_key?.trim());
+
+    // Always read the live config rather than caching configChanged payloads: the Homebridge
+    // UI deliberately drops the first form change after the page updates the config, so a
+    // cached copy can miss what the user just typed.
+    async function refreshCredentialState() {
+      const ready = hasKeys(platformBlock(await homebridge.getPluginConfig()));
+      needsCredentials.hidden = ready;
+      hasCredentials.hidden = !ready;
+      button.disabled = busy || !ready;
+    }
+
+    function showStatus(kind, message) {
+      status.className = `alert alert-${kind} mt-3 mb-0`;
+      status.textContent = message;
+      status.hidden = false;
+    }
+
+    function showIgnored(devices) {
+      ignoredList.replaceChildren(...devices.map((d) => {
+        const li = document.createElement('li');
+        // Names come from Tuya, so they go in as text, never as HTML.
+        li.textContent = `${d.name} — ${d.productName} (device ID ${d.id})`;
+        return li;
+      }));
+      ignored.hidden = devices.length === 0;
+    }
+
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+    // Setting labels, taken from the plugin's schema so they match the form exactly.
+    let deviceFields = {};
+    async function loadLabels() {
+      const schema = await homebridge.getPluginConfigSchema();
+      deviceFields = schema?.schema?.properties?.devices?.items?.properties ?? {};
+    }
+    const labelOf = (key, sub) => {
+      const field = deviceFields[key];
+      if (!sub) return field?.title ?? key;
+      return `${field?.title ?? key} → ${field?.properties?.[sub]?.title ?? sub}`;
+    };
+    // Values as the form shows them: on/off for switches, the option's name for dropdowns.
+    const show = (value, key, sub) => {
+      if (value === true) return 'on';
+      if (value === false) return 'off';
+      if (value === undefined) return 'not set';
+      const field = sub ? deviceFields[key]?.properties?.[sub] : deviceFields[key];
+      const index = field?.enum?.indexOf(value) ?? -1;
+      return index >= 0 && field.enumNames ? field.enumNames[index] : String(value);
+    };
+
+    // Writes `settings` into a form device entry, returning the changes the user will see.
+    function applySettings(device, settings) {
+      const changes = [];
+      const set = (target, field, value, key, sub) => {
+        if (target[field] !== value) {
+          changes.push({ label: labelOf(key, sub), from: show(target[field], key, sub), to: show(value, key, sub) });
+        }
+        target[field] = value;
+      };
+      for (const [key, value] of Object.entries(settings)) {
+        if (key === 'mode_mappings') {
+          device.mode_mappings ??= {};
+          for (const [mode, choice] of Object.entries(value)) set(device.mode_mappings, mode, choice, key, mode);
+        } else {
+          set(device, key, value, key);
+        }
+      }
+      return changes;
+    }
+
+    // One block per device: what's being added, or exactly which settings change and how.
+    function showReview(entries) {
+      reviewList.replaceChildren(...entries.map(({ name, id, isNew, changes }) => {
+        const block = document.createElement('div');
+        block.className = 'mb-3';
+        const heading = document.createElement('div');
+        const title = document.createElement('strong');
+        // Names come from Tuya, so they go in as text, never as HTML.
+        title.textContent = name;
+        const badge = document.createElement('span');
+        badge.className = `badge ms-2 ${isNew ? 'bg-success' : 'bg-primary'}`;
+        badge.textContent = isNew ? 'New device' : `${plural(changes.length, 'setting')} updated`;
+        const detail = document.createElement('div');
+        detail.className = 'small text-muted';
+        detail.textContent = `Device ID ${id}`;
+        heading.append(title, badge, detail);
+
+        const list = document.createElement('ul');
+        list.className = 'small mb-0 mt-1';
+        list.replaceChildren(...changes.map(({ label, from, to }) => {
+          const li = document.createElement('li');
+          const what = document.createElement('span');
+          what.textContent = `${label}: `;
+          const value = document.createElement('strong');
+          value.textContent = to;
+          if (isNew) {
+            li.append(what, value);
+          } else {
+            const was = document.createElement('span');
+            was.className = 'text-muted';
+            was.textContent = `${from} → `;
+            li.append(what, was, value);
+          }
+          return li;
+        }));
+        block.append(heading, list);
+        return block;
+      }));
+      review.hidden = entries.length === 0;
+    }
+
+    function describe(result, region, entries) {
+      const { alreadyConfigured, ignored: other } = result;
+      const otherNote = other.length > 0 ? ` ${plural(other.length, 'other air conditioner')} ignored (listed below).` : '';
+      const added = entries.filter((e) => e.isNew).length;
+      const updated = entries.filter((e) => !e.isNew);
+      if (entries.length > 0) {
+        const parts = [];
+        if (added > 0) parts.push(`added ${plural(added, 'Meaco unit')}`);
+        if (updated.length > 0) {
+          const count = updated.reduce((n, e) => n + e.changes.length, 0);
+          parts.push(`updated ${plural(count, 'setting')} on ${plural(updated.length, 'existing unit')}`);
+        }
+        const summary = parts.join(' and ');
+        return ['success', `Discovery ${summary}.${otherNote} Nothing is saved yet: review the changes below, ` +
+          'then click Save and restart Homebridge to apply them.'];
+      }
+      if (alreadyConfigured.length > 0) {
+        return ['info', `All ${plural(alreadyConfigured.length, 'Meaco unit')} on your Tuya project ${alreadyConfigured.length === 1 ? 'is' : 'are'} ` +
+          `already in the device list, with no settings to fill in.${otherNote}`];
+      }
+      return ['warning', `No Meaco units found on your Tuya project (region ${region}).${otherNote} ` +
+        'Check the region matches your Tuya project, and that your devices are linked to it under Devices → Link Tuya App Account in the Tuya console.'];
+    }
+
+    // The Homebridge UI only draws the settings form once a config block exists, so on a
+    // fresh install create an empty one, or there'd be nowhere to enter credentials. This
+    // only changes the form; nothing is saved until the user saves.
+    //
+    // The settings modal (Homebridge UI 5.x) doesn't redraw for a new block or for
+    // showSchemaForm on their own, so the form stays missing until something else redraws
+    // the page. Showing and hiding the spinner does, so do that once everything is set.
+    homebridge.addEventListener('ready', async () => {
+      const existing = await homebridge.getPluginConfig();
+      if (!platformBlock(existing)) {
+        await homebridge.updatePluginConfig([...existing, { platform: PLATFORM, name: 'Meaco' }]);
+      }
+      homebridge.showSchemaForm();
+      homebridge.showSpinner();
+      homebridge.hideSpinner();
+      await Promise.all([refreshCredentialState(), loadLabels()]);
+      // Change events can be dropped (see above), so poll too; it's a local message, not a network call.
+      setInterval(() => { void refreshCredentialState(); }, 1000);
+    });
+    homebridge.addEventListener('configChanged', () => { void refreshCredentialState(); });
+
+    button.addEventListener('click', async () => {
+      busy = true;
+      button.disabled = true;
+      status.hidden = true;
+      review.hidden = true;
+      homebridge.showSpinner();
+      try {
+        const blocks = await homebridge.getPluginConfig();
+        const platform = platformBlock(blocks);
+        // The form adds an empty device row by default; drop rows with no ID so they
+        // don't fail validation once discovered devices are saved alongside them.
+        platform.devices = (platform.devices ?? []).filter((d) => d.tuya_device_id?.trim());
+        const region = credentialsOf(platform).tuya_region ?? 'EU';
+
+        const result = await homebridge.request('/discover', {
+          credentials: credentialsOf(platform),
+          configuredDeviceIds: platform.devices.map((d) => d.tuya_device_id),
+          requestTimeoutMs: platform.advanced_settings?.request_timeout_ms,
+        });
+        showIgnored(result.ignored);
+
+        const entries = [];
+        for (const { tuya_device_id, display_name, ...rest } of result.added) {
+          const device = { tuya_device_id, display_name };
+          platform.devices.push(device);
+          const changes = applySettings(device, rest);
+          entries.push({ name: display_name, id: tuya_device_id, isNew: true, changes });
+        }
+        // Only settings the saved config leaves unset, and only where the form shows
+        // something different, so every line listed is a real change.
+        for (const { tuya_device_id, settings } of result.updates) {
+          const device = platform.devices.find((d) => d.tuya_device_id === tuya_device_id);
+          if (!device) continue;
+          const changes = applySettings(device, settings);
+          if (changes.length > 0) {
+            entries.push({ name: device.display_name || tuya_device_id, id: tuya_device_id, isNew: false, changes });
+          }
+        }
+        // Into the form only: the user reviews the changes and saves them.
+        if (entries.length > 0) await homebridge.updatePluginConfig(blocks);
+        showReview(entries);
+        showStatus(...describe(result, region, entries));
+      } catch (err) {
+        showStatus('danger', `Discovery failed: ${err?.message ?? String(err)}`);
+      } finally {
+        homebridge.hideSpinner();
+        busy = false;
+        await refreshCredentialState();
+      }
+    });
+  })();
+</script>
