@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/maubergine/homebridge-meaco/compare/v1.2.1...v1.3.0) (2026-10-22)
+
+
+### Features
+
+* prepare for Homebridge verification; device config reworked (check devices after upgrading) ([#79](https://github.com/maubergine/homebridge-meaco/issues/79)) ([2f5dc02](https://github.com/maubergine/homebridge-meaco/commit/2f5dc028fe412ab7a62f60603382218e6c1b0e09))
+
 ## [1.2.1](https://github.com/maubergine/homebridge-meaco/compare/v1.2.0...v1.2.1) (2026-10-21)
 
 
