@@ -1,0 +1,22 @@
+# Local Homebridge running the plugin built from this checkout. Drive it with
+# scripts/harness.sh rather than calling docker compose directly; see harness/README.md.
+name: homebridge-meaco-harness
+
+services:
+  homebridge:
+    build: .
+    image: homebridge-meaco-harness:local
+    restart: unless-stopped
+    ports:
+      # Homebridge UI. HomeKit pairing isn't exposed: the harness is for the plugin's
+      # settings, logs and accessories as the UI shows them.
+      - "${HARNESS_UI_PORT:-8581}:8581"
+    environment:
+      TZ: ${TZ:-UTC}
+      # No mDNS in a bridged container, so don't run avahi just to log errors.
+      ENABLE_AVAHI: "0"
+    volumes:
+      # Homebridge storage (config.json, node_modules, logs, cached accessories).
+      - ./data:/homebridge
+      # The packed plugin; data/package.json installs it from here on every start.
+      - ./pkg:/harness/pkg:ro

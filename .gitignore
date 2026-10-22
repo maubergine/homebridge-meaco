@@ -5,6 +5,8 @@ coverage/
 .DS_Store
 homebridge-debug/
 .idea/
+# Tarballs from npm pack / npm run pack:local
+*.tgz
 
 # Keys, certificates and secrets: never commit them
 *.pem
@@ -18,3 +20,8 @@ homebridge-debug/
 .env
 .env.*
 !.env.example
+
+# Local Docker harness state (scripts/harness.sh)
+harness/data/
+harness/pkg/
+harness/.env

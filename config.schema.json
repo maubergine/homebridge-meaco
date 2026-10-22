@@ -2,6 +2,7 @@
   "pluginAlias": "MeacoPlatform",
   "pluginType": "platform",
   "singular": true,
+  "customUi": true,
   "strictValidation": true,
   "fixArrays": true,
   "headerDisplay": "Control your Meaco air conditioner from Apple Home via Tuya Cloud. You need a Tuya IoT account — see the README for setup instructions.",
@@ -26,15 +27,15 @@
           },
           "tuya_access_key": {
             "title": "Access Key",
-            "type": "string",
-            "required": true
+            "type": "string"
           },
           "tuya_secret_key": {
             "title": "Secret Key",
             "type": "string",
-            "required": true
+            "x-schema-form": { "type": "password" }
           }
-        }
+        },
+        "required": ["tuya_access_key", "tuya_secret_key"]
       },
       "use_message_service": {
         "title": "Use Tuya Message Service (push updates)",
@@ -56,11 +57,11 @@
         "items": {
           "title": "Device",
           "type": "object",
+          "required": ["tuya_device_id"],
           "properties": {
             "tuya_device_id": {
               "title": "Tuya Device ID",
               "type": "string",
-              "required": true,
               "description": "Listing a device here also includes it if automatic detection doesn't recognise it as a Meaco unit."
             },
             "enabled": {
@@ -77,7 +78,8 @@
               "type": "string",
               "default": "heater_cooler",
               "enum": ["heater_cooler", "thermostat", "fan_only"],
-              "enumNames": ["Heater/Cooler (recommended)", "Thermostat", "Fan Only"]
+              "enumNames": ["Heater/Cooler (recommended)", "Thermostat", "Fan Only"],
+              "description": "How the unit appears in Home. Thermostat has no fan speed, swing or child lock controls. Fan Only shows the unit as a fan that runs in fan mode, with no temperature or mode controls."
             },
             "temperature_unit": {
               "title": "Temperature Unit",
@@ -94,14 +96,17 @@
             "expose_child_lock": {
               "title": "Expose Child Lock Switch",
               "type": "boolean",
-              "default": true
+              "default": true,
+              "condition": {
+                "functionBody": "return model.devices?.[arrayIndices]?.display_type !== 'thermostat';"
+              }
             },
             "expose_swing_control": {
               "title": "Expose Swing Control",
               "type": "boolean",
               "default": false,
               "condition": {
-                "functionBody": "return model.display_type !== 'thermostat';"
+                "functionBody": "return model.devices?.[arrayIndices]?.display_type !== 'thermostat';"
               }
             },
             "expose_sleep_mode_switch": {
@@ -135,7 +140,10 @@
             "expose_fan_speed": {
               "title": "Expose Fan Speed Slider",
               "type": "boolean",
-              "default": true
+              "default": true,
+              "condition": {
+                "functionBody": "return model.devices?.[arrayIndices]?.display_type !== 'thermostat';"
+              }
             },
             "mode_mappings": {
               "title": "Mode Mappings",
@@ -146,6 +154,9 @@
                 "heat": {
                   "title": "Heat",
                   "type": "string",
+                  "condition": {
+                    "functionBody": "return model.devices?.[arrayIndices]?.display_type !== 'fan_only';"
+                  },
                   "default": "Heat",
                   "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
                   "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]
@@ -153,6 +164,9 @@
                 "cool": {
                   "title": "Cool",
                   "type": "string",
+                  "condition": {
+                    "functionBody": "return model.devices?.[arrayIndices]?.display_type !== 'fan_only';"
+                  },
                   "default": "Cool",
                   "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
                   "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]
@@ -160,6 +174,9 @@
                 "auto": {
                   "title": "Auto",
                   "type": "string",
+                  "condition": {
+                    "functionBody": "return model.devices?.[arrayIndices]?.display_type !== 'fan_only';"
+                  },
                   "default": "None",
                   "enum": ["Cool", "Dry", "Fan", "Heat", "None"],
                   "enumNames": ["Cool", "Dry", "Fan", "Heat", "None"]

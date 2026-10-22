@@ -1,4 +1,3 @@
-import { readFile, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 
 import type {
@@ -12,17 +11,18 @@ import type {
 import { PLATFORM_NAME, PLUGIN_NAME, DEFAULTS } from './settings.js';
 import type { TuyaPulsarEnv, TuyaRegion } from './settings.js';
 import { CloudClient } from './tuya/cloudClient.js';
-import type { TuyaCloudDevice } from './tuya/types.js';
 import { PulsarClient, resolveConsumerName } from './tuya/pulsarClient.js';
-import { parseSpecification, parseModeRangeFromModel, parseFanSpeedFromModel, deriveModeDefaults } from './tuya/specParser.js';
-import { applyOverrides } from './core/capabilityProfile.js';
+import { buildProfile, deriveDeviceDefaults } from './core/deviceDefaults.js';
 import type { CapabilityOverrides } from './core/capabilityProfile.js';
-import { matchMeacoDevice } from './core/deviceDetection.js';
+import { AC_CATEGORY, classifyDevices } from './core/discovery.js';
 import { DatapointMap } from './core/datapointMap.js';
 import { StateCache } from './core/stateCache.js';
 import { Poller } from './core/poller.js';
 import { AirConditionerAccessory } from './accessories/airConditionerAccessory.js';
 import type { DeviceConfig, TuyaChoice } from './accessories/airConditionerAccessory.js';
+
+const DISCOVERY_RETRY_MIN_MS = 30_000;
+const DISCOVERY_RETRY_MAX_MS = 15 * 60_000;
 
 interface DeviceOverride {
   tuya_device_id: string;
@@ -68,6 +68,9 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
   private cloudClient: CloudClient | null = null;
   private pulsarClient: PulsarClient | null = null;
   private readonly pollers: Poller[] = [];
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryDelayMs = DISCOVERY_RETRY_MIN_MS;
+  private setupStarted = false;
 
   constructor(
     private readonly log: Logger,
@@ -76,6 +79,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
   ) {
     this.api.on('didFinishLaunching', () => { void this.discoverDevices(); });
     this.api.on('shutdown', () => {
+      if (this.retryTimer !== null) clearTimeout(this.retryTimer);
       for (const poller of this.pollers) {
         poller.stop();
       }
@@ -115,7 +119,32 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
     this.accessories.set(accessory.UUID, accessory);
   }
 
+  /**
+   * Runs discovery, retrying with backoff if Tuya can't be reached. Cached
+   * accessories are left alone until it succeeds, so a Tuya outage at startup
+   * doesn't wipe the user's rooms and automations.
+   */
   private async discoverDevices(): Promise<void> {
+    try {
+      await this.loadDevices();
+    } catch (err) {
+      // Past this point devices have pollers and handlers; a retry would double them.
+      if (this.setupStarted) {
+        this.log.error(`Device discovery failed: ${String(err)}`);
+        return;
+      }
+      this.log.error(
+        `Could not load devices from Tuya: ${String(err)}. Retrying in ${this.retryDelayMs / 1000}s.`,
+      );
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = null;
+        void this.discoverDevices();
+      }, this.retryDelayMs);
+      this.retryDelayMs = Math.min(this.retryDelayMs * 2, DISCOVERY_RETRY_MAX_MS);
+    }
+  }
+
+  private async loadDevices(): Promise<void> {
     const creds = this.config.cloud_credentials;
     if (!creds?.tuya_access_key || !creds.tuya_secret_key) {
       this.log.error('Missing Tuya credentials. Plugin will not load devices.');
@@ -167,19 +196,12 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       (this.config.devices ?? []).map(d => [d.tuya_device_id, d]),
     );
 
-    const allInCategory = await client.listAllDevices(20, 'kt');
-    const configuredIds = new Set(overridesByDeviceId.keys());
-    const discovered: TuyaCloudDevice[] = [];
-    const skipped: TuyaCloudDevice[] = [];
-    for (const d of allInCategory) {
-      const match = matchMeacoDevice(d, configuredIds);
-      if (match) {
-        this.log.debug(`Device ${d.id} (${d.productName}, ${d.productId}) matched by ${match}.`);
-        discovered.push(d);
-      } else {
-        skipped.push(d);
-      }
+    const allInCategory = await client.listAllDevices(20, AC_CATEGORY);
+    const { matched, skipped } = classifyDevices(allInCategory, new Set(overridesByDeviceId.keys()));
+    for (const { device: d, match } of matched) {
+      this.log.debug(`Device ${d.id} (${d.productName}, ${d.productId}) matched by ${match}.`);
     }
+    const discovered = matched.map(m => m.device);
     this.log.info(
       `Discovered ${discovered.length} Meaco AC device(s) from Tuya` +
       (skipped.length > 0 ? ` (ignored ${skipped.length} non-Meaco device(s) in category 'kt').` : '.'),
@@ -191,30 +213,26 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       );
     }
 
-    const newDevices = discovered.filter(d => !overridesByDeviceId.has(d.id));
-    if (newDevices.length > 0) {
-      const newEntries = await Promise.all(newDevices.map(async (d) => {
-        const modelResponse = await client.getDeviceModel(d.id).catch(() => null);
-        const modeRange = modelResponse ? parseModeRangeFromModel(modelResponse.result.model) : [];
-        const { expose_dry_mode_switch } = deriveModeDefaults(modeRange);
-        return {
-          tuya_device_id: d.id,
-          enabled: true,
-          display_name: d.customName || d.name,
-          expose_dry_mode_switch,
-          ...(d.model ? { model: d.model } : {}),
-        };
-      }));
-      await this.persistNewDevices(newEntries);
+    const unconfigured = discovered.filter(d => !overridesByDeviceId.has(d.id));
+    if (unconfigured.length > 0) {
+      this.log.info(
+        `${unconfigured.length} device(s) aren't in the plugin config, so they run on detected defaults. ` +
+        'To customise them, open the plugin settings and click "Discover devices".',
+      );
     }
 
+    this.setupStarted = true;
     for (const device of discovered) {
       const overrides = overridesByDeviceId.get(device.id);
       if (overrides?.enabled === false) {
         this.log.info(`Skipping disabled device: ${device.name} (${device.id})`);
         continue;
       }
-      await this.setupDevice(device.id, overrides, client);
+      if (!await this.setupDevice(device.id, overrides, client)) {
+        // Take it off the stale list so its cached accessory survives: removing it
+        // would drop the device's room and automations over a passing Tuya error.
+        this.accessories.delete(this.api.hap.uuid.generate(device.id));
+      }
     }
 
     const stale = [...this.accessories.values()];
@@ -228,51 +246,19 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
     this.pulsarClient?.start();
   }
 
-  private async persistNewDevices(entries: Pick<DeviceOverride, 'tuya_device_id' | 'enabled' | 'display_name' | 'expose_dry_mode_switch'>[]): Promise<void> {
-    try {
-      const configPath = this.api.user.configPath();
-      const raw = await readFile(configPath, 'utf-8');
-      const configJson = JSON.parse(raw) as { platforms?: Record<string, unknown>[] };
-      const platform = configJson.platforms?.find(p => p.platform === PLATFORM_NAME);
-      if (!platform) return;
-      const existing = (platform.devices ?? []) as DeviceOverride[];
-      platform.devices = [...existing, ...entries];
-      await writeFile(configPath, JSON.stringify(configJson, null, 4));
-      this.log.info(`Added ${entries.length} new device(s) to config: ${entries.map(e => e.tuya_device_id).join(', ')}`);
-    } catch (err) {
-      this.log.warn(`Could not persist new devices to config: ${String(err)}`);
-    }
-  }
-
   private async setupDevice(
     deviceId: string,
     overrides: DeviceOverride | undefined,
     client: CloudClient,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const [infoResponse, specResponse, modelResponse] = await Promise.all([
         client.getDeviceInfo(deviceId),
         client.getDeviceSpecification(deviceId),
         client.getDeviceModel(deviceId).catch(() => null),
       ]);
-      const detected = parseSpecification(specResponse);
-      if (modelResponse && detected.fanSpeedLevels.length === 0) {
-        const modelFanSpeed = parseFanSpeedFromModel(modelResponse.result.model);
-        if (modelFanSpeed) {
-          detected.fanSpeedLevels = modelFanSpeed.levels;
-          detected.rawFunctions.set(modelFanSpeed.code, {
-            code: modelFanSpeed.code, desc: '', name: 'Fan Speed', type: 'Enum',
-            values: JSON.stringify({ range: modelFanSpeed.levels }),
-          });
-        }
-      }
-      const profile = applyOverrides(detected, overrides?.capability_overrides);
-
-      const modeRange = modelResponse
-        ? parseModeRangeFromModel(modelResponse.result.model)
-        : [...(profile.hasHeat ? ['Heat'] : []), ...(profile.hasCool ? ['Cool'] : []),
-           ...(profile.hasDry ? ['Dyr'] : []), ...(profile.hasFanOnly ? ['Fan'] : [])];
-      const modeDefaults = deriveModeDefaults(modeRange);
+      const { profile, modeRange } = buildProfile(specResponse, modelResponse, overrides?.capability_overrides);
+      const defaults = deriveDeviceDefaults(profile, modeRange);
       const map = new DatapointMap(profile);
 
       const apiDevice = infoResponse.result;
@@ -281,7 +267,7 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       const model = overrides?.model ?? apiDevice.model;
       const serialNumber = overrides?.serial_number ?? apiDevice.uuid;
 
-      const cfgUnit = overrides?.temperature_unit ?? 'auto';
+      const cfgUnit = overrides?.temperature_unit ?? defaults.temperature_unit;
       const detectedUnit = apiDevice.status.find(s => s.code === 'temp_unit_convert')?.value === 'f'
         ? 'fahrenheit' : 'celsius';
       const temperatureUnit: 'celsius' | 'fahrenheit' =
@@ -313,18 +299,18 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
         manufacturer,
         model,
         serial_number: serialNumber,
-        display_type: overrides?.display_type ?? 'heater_cooler',
+        display_type: overrides?.display_type ?? defaults.display_type,
         temperature_unit: temperatureUnit,
-        expose_child_lock: overrides?.expose_child_lock ?? true,
-        expose_swing_control: overrides?.expose_swing_control ?? false,
-        expose_sleep_mode_switch: overrides?.expose_sleep_mode_switch ?? true,
-        expose_fan_speed: overrides?.expose_fan_speed ?? true,
-        expose_dry_mode_switch: overrides?.expose_dry_mode_switch ?? modeDefaults.expose_dry_mode_switch,
-        expose_fan_only_mode_switch: modeDefaults.expose_fan_only_mode_switch,
+        expose_child_lock: overrides?.expose_child_lock ?? defaults.expose_child_lock,
+        expose_swing_control: overrides?.expose_swing_control ?? defaults.expose_swing_control,
+        expose_sleep_mode_switch: overrides?.expose_sleep_mode_switch ?? defaults.expose_sleep_mode_switch,
+        expose_fan_speed: overrides?.expose_fan_speed ?? defaults.expose_fan_speed,
+        expose_dry_mode_switch: overrides?.expose_dry_mode_switch ?? defaults.expose_dry_mode_switch,
+        expose_fan_only_mode_switch: defaults.expose_fan_only_mode_switch,
         mode_mappings: {
-          heat: overrides?.mode_mappings?.heat ?? modeDefaults.mode_mappings.heat,
-          cool: overrides?.mode_mappings?.cool ?? modeDefaults.mode_mappings.cool,
-          auto: overrides?.mode_mappings?.auto ?? modeDefaults.mode_mappings.auto,
+          heat: overrides?.mode_mappings?.heat ?? defaults.mode_mappings.heat,
+          cool: overrides?.mode_mappings?.cool ?? defaults.mode_mappings.cool,
+          auto: overrides?.mode_mappings?.auto ?? defaults.mode_mappings.auto,
         },
         polling_interval_seconds: this.resolvePollingInterval(deviceId, overrides?.polling_interval_seconds),
         unresponsive_after_failures: overrides?.unresponsive_after_failures ?? DEFAULTS.unresponsiveAfterFailures,
@@ -353,8 +339,10 @@ export class MeacoPlatform implements DynamicPlatformPlugin {
       // Without this a device that never changes would show nothing until the first
       // scheduled poll — which, with push on, can be ten minutes away.
       await poller.triggerNow();
+      return true;
     } catch (err) {
       this.log.error(`Failed to set up device ${deviceId}: ${String(err)}`);
+      return false;
     }
   }
 }

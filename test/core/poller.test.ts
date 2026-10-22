@@ -73,4 +73,45 @@ describe('Poller', () => {
     expect(onTick).toHaveBeenCalledTimes(1);
     poller.stop();
   });
+
+  it('keeps ticking after onTick rejects', async () => {
+    const onTick = vi.fn()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValue(undefined);
+    const poller = new Poller();
+    poller.start(1, onTick);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    poller.stop();
+
+    expect(onTick.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('does not leak an unhandled rejection when onTick rejects', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const onTick = vi.fn().mockRejectedValue(new Error('boom'));
+      const poller = new Poller();
+      poller.start(1, onTick);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      poller.stop();
+      vi.useRealTimers();
+      await new Promise((r) => setImmediate(r));
+
+      expect(onTick.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
+  it('triggerNow() still propagates onTick errors', async () => {
+    const onTick = vi.fn().mockRejectedValue(new Error('boom'));
+    const poller = new Poller();
+    poller.start(60, onTick);
+    await expect(poller.triggerNow()).rejects.toThrow('boom');
+    poller.stop();
+  });
 });

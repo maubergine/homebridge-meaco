@@ -1,0 +1,47 @@
+# Adds a fake Tuya cloud on top of compose.yaml (scripts/harness.sh up --stub).
+#
+# The plugin runs unmodified: the stub answers for Tuya's real hostnames through network
+# aliases, with a certificate from its own CA, and the Homebridge container trusts that CA
+# through NODE_EXTRA_CA_CERTS. Nothing in the harness reaches the real Tuya cloud.
+
+services:
+  homebridge:
+    environment:
+      NODE_EXTRA_CA_CERTS: /harness/stub-certs/ca.pem
+    volumes:
+      - stub-certs:/harness/stub-certs:ro
+    depends_on:
+      tuya-stub:
+        condition: service_healthy
+
+  tuya-stub:
+    # Same image as Homebridge, for its Node and openssl; one image for Dependabot to track.
+    build: .
+    image: homebridge-meaco-harness:local
+    restart: unless-stopped
+    entrypoint: ["/harness/tuya-stub/entrypoint.sh"]
+    volumes:
+      - ./tuya-stub:/harness/tuya-stub:ro
+      - stub-certs:/certs
+    healthcheck:
+      test: ["CMD", "curl", "-sfk", "https://localhost/healthz"]
+      interval: 2s
+      retries: 30
+    networks:
+      default:
+        aliases:
+          # Every OpenAPI region in src/settings.ts, so any region works against the stub.
+          - openapi.tuyaus.com
+          - openapi.tuyaeu.com
+          - openapi-weeu.tuyaeu.com
+          - openapi.tuyacn.com
+          - openapi.tuyain.com
+          # Message Service hosts. The stub doesn't serve them, so connections are refused
+          # straight away rather than reaching the real Tuya cloud with fake credentials.
+          - mqe.tuyaus.com
+          - mqe.tuyaeu.com
+          - mqe.tuyacn.com
+          - mqe.tuyain.com
+
+volumes:
+  stub-certs:

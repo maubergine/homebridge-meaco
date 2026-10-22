@@ -5,6 +5,7 @@ export class MockCharacteristic {
   private getHandler?: GetHandler;
   private setHandler?: SetHandler;
   public lastUpdatedValue: unknown;
+  public displayName = 'Mock';
 
   onGet(handler: GetHandler): this {
     this.getHandler = handler;
@@ -79,6 +80,23 @@ export class MockAccessory {
   getServiceById(name: string, _subtype: string): MockService | undefined {
     return this.services.get(name);
   }
+
+  removeService(service: MockService): void {
+    for (const [name, svc] of this.services) {
+      if (svc === service) this.services.delete(name);
+    }
+  }
+}
+
+export const MockHAPStatus = { SERVICE_COMMUNICATION_FAILURE: -70402 } as const;
+
+export class MockHapStatusError extends Error {
+  readonly hapStatus: number;
+
+  constructor(status: number) {
+    super(`HAP status ${String(status)}`);
+    this.hapStatus = status;
+  }
 }
 
 export function createMockHap() {
@@ -88,7 +106,7 @@ export function createMockHap() {
       if (!(key in target)) {
         const c = makeChar();
         // Static enum values used by the accessory (INACTIVE=0, IDLE=1, HEATING=2, COOLING=3, etc.)
-        Object.assign(c, { INACTIVE: 0, IDLE: 1, HEATING: 2, COOLING: 3, AUTO: 0, HEAT: 1, COOL: 2 });
+        Object.assign(c, { INACTIVE: 0, IDLE: 1, HEATING: 2, COOLING: 3, AUTO: 0, HEAT: 1, COOL: 2, CELSIUS: 0, FAHRENHEIT: 1 });
         (target as Record<string, unknown>)[key as string] = c;
       }
       return (target as Record<string, unknown>)[key as string];
@@ -103,6 +121,8 @@ export function createMockHap() {
       },
     }),
     Characteristic: charProxy,
+    HAPStatus: MockHAPStatus,
+    HapStatusError: MockHapStatusError,
   };
 }
 

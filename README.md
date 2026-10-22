@@ -6,10 +6,20 @@ A [Homebridge](https://homebridge.io) plugin for Meaco air conditioners, exposin
 
 ## Features
 
-- Discovers Meaco air conditioners linked to your Tuya / Smart Life account, with a
+- Picks out Meaco air conditioners from everything on your Tuya / Smart Life
+  account — other brands' units on the same Tuya hardware are left alone — with a
   config override for models it doesn't yet recognise
-- Exposes each unit to HomeKit as an air conditioner accessory
+- **Discover devices** button in the plugin settings fills in the device list for
+  you, with each unit's name, model and detected defaults
+- Exposes each unit to HomeKit as a heater/cooler (the default), a thermostat or a
+  fan, chosen per device, branded as Meaco
 - Power, mode and temperature control with optimistic updates
+- Switches for Meaco's sleep, dry and fan-only modes, shown when the unit supports
+  them
+- Fan speed, swing and child lock controls on the main accessory
+- Sleep, dry, fan speed, swing and child lock can each be turned off per device
+- Mode mappings per device: choose which Meaco mode HomeKit's Heat, Cool and Auto
+  states select, or hide a state entirely
 - Live updates pushed from Tuya's Message Service, so changes made on the unit
   itself appear in Home within a second or two — without polling the API
 
@@ -42,7 +52,14 @@ Configure the plugin through the Homebridge UI, or add a platform block to your
 `config.json`. See the plugin settings for the required Tuya credentials
 (access ID, access secret, region and linked account details).
 
-Once first started the plugin should discover your Meaco devices and add them to its own configuration. You will then need to restart Homebridge.
+Your Meaco units show up in Home on the next restart without any device config — the
+plugin finds them and uses defaults detected for each one. To rename or customise them,
+open the plugin settings in the Homebridge UI, enter your credentials and click
+**Discover devices**. That adds every Meaco unit not already listed to the device list,
+filled in with its name, model and the settings detected for it. For units already listed,
+it fills in only the settings you haven't saved yet, so your own choices are never changed.
+Every change is listed above the form for you to review; nothing is saved until you click
+Save. Restart Homebridge to apply them.
 
 ### Device detection
 
@@ -250,6 +267,21 @@ The first run builds the runner image, which can take a minute or two. On Apple
 silicon the script automatically requests the `linux/amd64` image so the
 containers match GitHub's runners. Run `scripts/ci-local.sh -h` for the full
 list of options.
+
+## Trying Changes in Homebridge
+
+`scripts/harness.sh` runs the plugin from your checkout in a local Docker Homebridge (the
+official image, Synology tag), so you can use its settings page and see its logs and
+accessories in the Homebridge UI at <http://localhost:8581>:
+
+```sh
+scripts/harness.sh up           # against the real Tuya cloud, with your credentials
+scripts/harness.sh up --stub    # against a fake Tuya cloud with three sample units
+scripts/harness.sh reload       # after changing the code
+```
+
+See [harness/README.md](harness/README.md) for the full set of commands and what the stub
+does.
 
 ## Thanks
 To the following projects for structure/relevant integrations.

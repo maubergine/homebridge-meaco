@@ -29,7 +29,8 @@ export class Poller {
     if (this.stopped) return;
     this.handle = setTimeout(() => {
       void (async () => {
-        await this.tick();
+        // Callers record failures; the loop itself must never die.
+        await this.tick().catch(() => undefined);
         this.schedule();
       })();
     }, this.intervalMs);

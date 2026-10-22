@@ -33,3 +33,14 @@ updates:
         dependency-type: development
         update-types:
           - patch
+
+  # The local test harness image (harness/Dockerfile). It pins the `synology` tag by digest,
+  # so updates arrive as digest bumps. Nothing here ships to users, so no release.
+  - package-ecosystem: docker
+    directory: /harness
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies

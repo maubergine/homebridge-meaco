@@ -1,4 +1,4 @@
-import type { API, Characteristic, CharacteristicValue, Logger, PlatformAccessory } from 'homebridge';
+import type { API, Characteristic, CharacteristicValue, Logger, PlatformAccessory, Service, WithUUID } from 'homebridge';
 
 import type { CapabilityProfile } from '../core/capabilityProfile.js';
 import type { DatapointMap } from '../core/datapointMap.js';
@@ -42,6 +42,10 @@ const HK_ACTIVE_ACTIVE      = 1;
 const HK_HEATER_COOLER_AUTO = 0;
 const HK_HEATER_COOLER_HEAT = 1;
 const HK_HEATER_COOLER_COOL = 2;
+const HK_THERMOSTAT_OFF     = 0;
+const HK_THERMOSTAT_HEAT    = 1;
+const HK_THERMOSTAT_COOL    = 2;
+const HK_THERMOSTAT_AUTO    = 3;
 
 // Many Tuya operations have interacting side effects (e.g. selecting Fan mode also
 // powers the unit on, and changing mode toggles the dry/fan switches). After any
@@ -93,10 +97,10 @@ export class AirConditionerAccessory extends BaseAccessory {
     this.config = config;
     this.hap = hap;
 
-    this.setupHeaterCoolerService();
-    this.setupSleepSwitch();
-    this.setupDrySwitch();
-    this.setupFanSwitch();
+    const primary = this.setupPrimaryService();
+    this.setupSleepSwitch(primary);
+    this.setupDrySwitch(primary);
+    this.setupFanSwitch(primary);
   }
 
   // ── State refresh ───────────────────────────────────────────────────────────
@@ -112,13 +116,26 @@ export class AirConditionerAccessory extends BaseAccessory {
   }
 
   /**
-   * Registers a set handler that, after the command resolves, schedules a refresh
-   * of the whole device so interacting side effects surface on every service.
+   * Registers a set handler that schedules a refresh of the whole device once the
+   * command settles, so interacting side effects surface on every service. A failed
+   * command is logged once here and surfaced to HomeKit as a communication failure
+   * (the inner handlers revert their optimistic state and rethrow). The refresh still
+   * runs after a failure so HomeKit re-syncs with the device's real state.
    */
   private bindSet(char: Char, setFn: (value: unknown) => Promise<void>): void {
     char.onSet(async (value) => {
-      await setFn(value);
-      this.scheduleRefresh();
+      try {
+        await setFn(value);
+      } catch (err) {
+        if (err instanceof this.hap.HapStatusError) throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        this.log.error(
+          `Command failed for ${this.accessory.displayName} (${this.config.tuya_device_id}), ${char.displayName}: ${message}`,
+        );
+        throw new this.hap.HapStatusError(this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+      } finally {
+        this.scheduleRefresh();
+      }
     });
   }
 
@@ -179,7 +196,7 @@ export class AirConditionerAccessory extends BaseAccessory {
 
   // ── HomeKit service wiring ──────────────────────────────────────────────────
 
-  private setupSleepSwitch(): void {
+  private setupSleepSwitch(primary: Service): void {
     const { Service, Characteristic } = this.hap;
     if (!this.profile.hasSleep || !this.config.expose_sleep_mode_switch) {
       this.removeService(Service.Switch, 'sleep');
@@ -187,7 +204,7 @@ export class AirConditionerAccessory extends BaseAccessory {
     }
     const dpCode = this.map.resolve('sleep') ?? 'sleep';
     const svc = this.getOrAddService(Service.Switch, 'sleep', 'Sleep Mode');
-    this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
+    primary.addLinkedService(svc);
     svc.setCharacteristic(Characteristic.ConfiguredName, 'Sleep Mode');
     const c = svc.getCharacteristic(Characteristic.On);
     this.bindGet(c, () => !!this.stateCache.state[dpCode]);
@@ -203,43 +220,67 @@ export class AirConditionerAccessory extends BaseAccessory {
     });
   }
 
-  private setupDrySwitch(): void {
+  private setupDrySwitch(primary: Service): void {
     const { Service, Characteristic } = this.hap;
     if (!this.config.expose_dry_mode_switch) {
       this.removeService(Service.Switch, 'dry');
       return;
     }
     const svc = this.getOrAddService(Service.Switch, 'dry', 'Dry Mode');
-    this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
+    primary.addLinkedService(svc);
     svc.setCharacteristic(Characteristic.ConfiguredName, 'Dry Mode');
     const c = svc.getCharacteristic(Characteristic.On);
     this.bindGet(c, () => this.stateCache.state.mode === 'Dyr');
     this.bindSet(c, async (value) => { await this.testSetDryMode(value as boolean); });
   }
 
-  private setupFanSwitch(): void {
+  private setupFanSwitch(primary: Service): void {
     const { Service, Characteristic } = this.hap;
-    if (!this.config.expose_fan_only_mode_switch) {
+    // As a fan, the accessory's own power control already selects Fan mode.
+    if (!this.config.expose_fan_only_mode_switch || this.config.display_type === 'fan_only') {
       this.removeService(Service.Switch, 'fan');
       return;
     }
     const svc = this.getOrAddService(Service.Switch, 'fan', 'Fan Only');
-    this.getOrAddService(Service.HeaterCooler).addLinkedService(svc);
+    primary.addLinkedService(svc);
     svc.setCharacteristic(Characteristic.ConfiguredName, 'Fan Only');
     const c = svc.getCharacteristic(Characteristic.On);
     this.bindGet(c, () => this.stateCache.state.mode === 'Fan');
     this.bindSet(c, async (value) => { await this.testSetFanMode(value as boolean); });
   }
 
-  private setupHeaterCoolerService(): void {
-    const { Service, Characteristic } = this.hap;
-    const svc = this.getOrAddService(Service.HeaterCooler);
+  /**
+   * Adds the service HomeKit shows the unit as, chosen by `display_type`, and
+   * removes the other types' services left in the cache from a previous choice.
+   */
+  private setupPrimaryService(): Service {
+    const { Service } = this.hap;
+    const services: Record<DeviceConfig['display_type'], WithUUID<typeof Service>> = {
+      heater_cooler: Service.HeaterCooler,
+      thermostat: Service.Thermostat,
+      fan_only: Service.Fanv2,
+    };
+    for (const [type, ServiceClass] of Object.entries(services)) {
+      if (type !== this.config.display_type) this.removeService(ServiceClass);
+    }
+    const svc = this.getOrAddService(services[this.config.display_type]);
 
-    // Make the HeaterCooler the accessory's primary service so its controls
-    // (child lock, fan speed, etc.) surface at the accessory's top level rather
-    // than being buried behind a per-service sub-page. The Switch services
-    // (sleep/dry/fan-only) are linked to it below in their own setup methods.
+    // Make it the accessory's primary service so its controls (child lock, fan
+    // speed, etc.) surface at the accessory's top level rather than being buried
+    // behind a per-service sub-page. The Switch services (sleep/dry/fan-only) are
+    // linked to it in their own setup methods.
     svc.setPrimaryService(true);
+
+    switch (this.config.display_type) {
+      case 'thermostat': this.setupThermostat(svc); break;
+      case 'fan_only': this.setupFan(svc); break;
+      default: this.setupHeaterCooler(svc);
+    }
+    return svc;
+  }
+
+  private setupHeaterCooler(svc: Service): void {
+    const { Characteristic } = this.hap;
 
     // Active (power on/off)
     const active = svc.getCharacteristic(Characteristic.Active);
@@ -264,26 +305,14 @@ export class AirConditionerAccessory extends BaseAccessory {
     this.bindGet(target, () => this.getTargetHeaterCoolerState());
     this.bindSet(target, async (value) => { await this.testSetTargetState(value as number); });
 
-    // CurrentTemperature (read-only)
-    if (this.map.resolve('currentTemp')) {
-      const cr = this.profile.currentTempRange;
-      const curTemp = svc.getCharacteristic(Characteristic.CurrentTemperature)
-        .setProps({ minValue: cr?.min ?? 0, maxValue: cr?.max ?? 100, minStep: cr?.step ?? 0.1 });
-      this.bindGet(curTemp, () => {
-        const raw = this.stateCache.state[this.map.resolve('currentTemp') ?? 'temp_current'] as number | undefined;
-        return raw !== undefined ? this.map.decodeCurrentTemp(raw) : 20;
-      });
-    }
+    if (this.map.resolve('currentTemp')) this.bindCurrentTemperature(svc);
 
     // CoolingThresholdTemperature
     if (this.profile.hasCool) {
       const { min, max, step } = this.profile.tempRange;
       const cool = svc.getCharacteristic(Characteristic.CoolingThresholdTemperature)
         .setProps({ minValue: min, maxValue: max, minStep: step });
-      this.bindGet(cool, () => {
-        const raw = this.stateCache.state[this.map.resolve('setpoint') ?? 'temp_set'] as number | undefined;
-        return raw !== undefined ? this.map.decodeSetpoint(raw) : min;
-      });
+      this.bindGet(cool, () => this.getSetpoint());
       this.bindSet(cool, async (value) => { await this.testSetCoolingThreshold(value as number); });
     }
 
@@ -292,12 +321,97 @@ export class AirConditionerAccessory extends BaseAccessory {
       const { min, max, step } = this.profile.tempRange;
       const heat = svc.getCharacteristic(Characteristic.HeatingThresholdTemperature)
         .setProps({ minValue: min, maxValue: max, minStep: step });
-      this.bindGet(heat, () => {
-        const raw = this.stateCache.state[this.map.resolve('setpoint') ?? 'temp_set'] as number | undefined;
-        return raw !== undefined ? this.map.decodeSetpoint(raw) : min;
-      });
+      this.bindGet(heat, () => this.getSetpoint());
       this.bindSet(heat, async (value) => { await this.testSetCoolingThreshold(value as number); });
     }
+
+    this.bindFanControls(svc);
+  }
+
+  /**
+   * Thermostat view. It has no power control of its own, so Off in the mode
+   * picker turns the unit off, and picking a mode turns it back on. HomeKit
+   * doesn't allow fan speed, swing or child lock on a thermostat.
+   */
+  private setupThermostat(svc: Service): void {
+    const { Characteristic } = this.hap;
+
+    // CurrentHeatingCoolingState has no idle value, so dry and fan modes show as Off.
+    this.bindGet(svc.getCharacteristic(Characteristic.CurrentHeatingCoolingState), () => {
+      if (!this.stateCache.state.switch) return HK_THERMOSTAT_OFF;
+      const mode = this.stateCache.state.mode as string | undefined;
+      const modes = this.resolvedModes();
+      if (mode === modes.heat) return HK_THERMOSTAT_HEAT;
+      if (mode === modes.cool) return HK_THERMOSTAT_COOL;
+      return HK_THERMOSTAT_OFF;
+    });
+
+    const modes = this.resolvedModes();
+    const validTargetStates = [HK_THERMOSTAT_OFF];
+    if (modes.heat !== null) validTargetStates.push(HK_THERMOSTAT_HEAT);
+    if (modes.cool !== null) validTargetStates.push(HK_THERMOSTAT_COOL);
+    if (modes.auto !== null) validTargetStates.push(HK_THERMOSTAT_AUTO);
+    const target = svc.getCharacteristic(Characteristic.TargetHeatingCoolingState)
+      .setProps({ validValues: validTargetStates });
+    this.bindGet(target, () => {
+      if (!this.stateCache.state.switch) return HK_THERMOSTAT_OFF;
+      const mode = this.stateCache.state.mode as string | undefined;
+      if (mode === modes.heat) return HK_THERMOSTAT_HEAT;
+      if (mode === modes.auto) return HK_THERMOSTAT_AUTO;
+      return HK_THERMOSTAT_COOL;
+    });
+    this.bindSet(target, async (value) => { await this.testSetThermostatTarget(value as number); });
+
+    this.bindCurrentTemperature(svc);
+
+    const { min, max, step } = this.profile.tempRange;
+    const setpoint = svc.getCharacteristic(Characteristic.TargetTemperature)
+      .setProps({ minValue: min, maxValue: max, minStep: step });
+    this.bindGet(setpoint, () => this.getSetpoint());
+    this.bindSet(setpoint, async (value) => { await this.testSetCoolingThreshold(value as number); });
+
+    // Display units are a HomeKit-side preference; the unit keeps its own setting.
+    const units = svc.getCharacteristic(Characteristic.TemperatureDisplayUnits);
+    this.bindGet(units, () => (this.config.temperature_unit === 'fahrenheit'
+      ? Characteristic.TemperatureDisplayUnits.FAHRENHEIT
+      : Characteristic.TemperatureDisplayUnits.CELSIUS));
+    units.onSet(() => undefined);
+  }
+
+  /** Fan view: on means running in Fan mode; the setpoint and modes are hidden. */
+  private setupFan(svc: Service): void {
+    const { Characteristic } = this.hap;
+    const active = svc.getCharacteristic(Characteristic.Active);
+    this.bindGet(active, () =>
+      (this.stateCache.state.switch && this.stateCache.state.mode === 'Fan' ? HK_ACTIVE_ACTIVE : 0));
+    this.bindSet(active, async (value) => {
+      if (value === HK_ACTIVE_ACTIVE) {
+        await this.testSetFanMode(true);
+      } else {
+        await this.testSetActive(0);
+      }
+    });
+    this.bindFanControls(svc);
+  }
+
+  private bindCurrentTemperature(svc: Service): void {
+    const cr = this.profile.currentTempRange;
+    const curTemp = svc.getCharacteristic(this.hap.Characteristic.CurrentTemperature)
+      .setProps({ minValue: cr?.min ?? 0, maxValue: cr?.max ?? 100, minStep: cr?.step ?? 0.1 });
+    this.bindGet(curTemp, () => {
+      const raw = this.stateCache.state[this.map.resolve('currentTemp') ?? 'temp_current'] as number | undefined;
+      return raw !== undefined ? this.map.decodeCurrentTemp(raw) : 20;
+    });
+  }
+
+  private getSetpoint(): number {
+    const raw = this.stateCache.state[this.map.resolve('setpoint') ?? 'temp_set'] as number | undefined;
+    return raw !== undefined ? this.map.decodeSetpoint(raw) : this.profile.tempRange.min;
+  }
+
+  /** Swing, child lock and fan speed: valid on the heater/cooler and fan views. */
+  private bindFanControls(svc: Service): void {
+    const { Characteristic } = this.hap;
 
     // SwingMode
     if (this.profile.hasSwing && this.config.expose_swing_control) {
@@ -316,7 +430,7 @@ export class AirConditionerAccessory extends BaseAccessory {
       });
     }
 
-    // LockPhysicalControls (child lock) — lives on the HeaterCooler service
+    // LockPhysicalControls (child lock)
     if (this.config.expose_child_lock) {
       const lockCode = this.map.resolve('lock') ?? 'lock';
       const lock = svc.getCharacteristic(Characteristic.LockPhysicalControls);
@@ -402,6 +516,29 @@ export class AirConditionerAccessory extends BaseAccessory {
       await this.postCommand(this.config.tuya_device_id, 'mode', mode);
     } catch (err) {
       this.stateCache.revertOptimistic('mode');
+      throw err;
+    }
+  }
+
+  async testSetThermostatTarget(hkState: number): Promise<void> {
+    if (hkState === HK_THERMOSTAT_OFF) {
+      await this.testSetActive(0);
+      return;
+    }
+    const modes = this.resolvedModes();
+    const mode = hkState === HK_THERMOSTAT_HEAT ? modes.heat
+      : hkState === HK_THERMOSTAT_AUTO ? modes.auto
+      : modes.cool;
+    if (!mode) return;
+    const wasOn = !!this.stateCache.state.switch;
+    this.stateCache.optimisticSet('mode', mode);
+    this.stateCache.optimisticSet('switch', true);
+    try {
+      await this.postCommand(this.config.tuya_device_id, 'mode', mode);
+      if (!wasOn) await this.postCommand(this.config.tuya_device_id, 'switch', true);
+    } catch (err) {
+      this.stateCache.revertOptimistic('mode');
+      this.stateCache.revertOptimistic('switch');
       throw err;
     }
   }
