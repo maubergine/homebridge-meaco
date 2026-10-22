@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/maubergine/homebridge-meaco/compare/v1.3.0...v1.3.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* address Homebridge verification check findings ([#80](https://github.com/maubergine/homebridge-meaco/issues/80)) ([ef196a9](https://github.com/maubergine/homebridge-meaco/commit/ef196a987a94e99b9f5f6142a2e7567f686100d5))
+
 # [1.3.0](https://github.com/maubergine/homebridge-meaco/compare/v1.2.1...v1.3.0) (2026-10-22)
 
 
