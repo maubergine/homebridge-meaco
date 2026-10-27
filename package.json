@@ -41,7 +41,7 @@
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import-x": "^4.17.1",
     "homebridge": "^2.0.0",
-    "nock": "^15.0.1",
+    "nock": "^15.0.5",
     "nodemon": "^3.1.0",
     "semantic-release": "^25.0.5",
     "typescript": "^6.0.3",
