@@ -1,3 +1,12 @@
+# Changelog
+
+## [1.3.2](https://github.com/maubergine/homebridge-meaco/compare/v1.3.1...v1.3.2) (2026-11-03)
+
+### Bug Fixes
+
+* **deps:** bump undici ([#87](https://github.com/maubergine/homebridge-meaco/issues/87)) ([23238fa](https://github.com/maubergine/homebridge-meaco/commit/23238fab69f069b0a39c4c20ac401b5054f980bd))
+* **deps:** bump ws from 8.22.0 to 8.22.1 ([#91](https://github.com/maubergine/homebridge-meaco/issues/91)) ([01df0fe](https://github.com/maubergine/homebridge-meaco/commit/01df0fed83daafb1c0c5a75a3d5f17bb063ab8d6))
+
 ## [1.3.1](https://github.com/maubergine/homebridge-meaco/compare/v1.3.0...v1.3.1) (2026-10-22)
 
 
