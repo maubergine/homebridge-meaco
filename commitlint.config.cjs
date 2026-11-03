@@ -14,6 +14,9 @@ module.exports = {
   }],
   rules: {
     "header-max-length": [0],
-    "header-max-length-before-pr-number": [2, "always", MAX_HEADER]
+    "header-max-length-before-pr-number": [2, "always", MAX_HEADER],
+    // PR descriptions become the commit body as unwrapped Markdown.
+    "body-max-line-length": [0],
+    "footer-max-line-length": [0]
   }
 };
