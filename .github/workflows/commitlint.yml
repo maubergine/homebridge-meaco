@@ -1,9 +1,15 @@
+# Checks Conventional Commits with commitlint (commitlint.config.cjs), run through npx: no package.json needed.
+# - Pull request: the PR title (it becomes the squash commit on main) and every commit on the branch.
+# - Merge queue and pushes to main: the squashed commits themselves, " (#123)" suffix and all.
+# release-please reads these commits to decide the next version.
 name: Commit lint
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
+    types: [opened, edited, synchronize, reopened]
+  merge_group:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -12,48 +18,65 @@ concurrency:
   group: commitlint-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  COMMITLINT: npx --yes -p @commitlint/cli@21.2.4 -p @commitlint/config-conventional@21.2.4 commitlint
+
 jobs:
   commitlint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
-          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Work out the commit range
+      - name: Work out what to lint
         id: range
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD: ${{ github.event.merge_group.head_sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            from="$BASE_SHA"
-          elif [ -n "$BEFORE_SHA" ] && git merge-base --is-ancestor "$BEFORE_SHA" "$HEAD_SHA" 2>/dev/null; then
-            from="$BEFORE_SHA"
-          else
-            # First push of a branch, or a force-push whose "before" isn't in the new history: lint just the tip commit.
-            # Empty for a root commit, which has no parent to lint from.
-            from=$(git rev-parse --verify -q "$HEAD_SHA~1" || true)
-          fi
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request) from="$PR_BASE"; to="$PR_HEAD" ;;
+            merge_group) from="$MG_BASE"; to="$MG_HEAD" ;;
+            *)
+              to="$AFTER"
+              if [ -n "$BEFORE" ] && git merge-base --is-ancestor "$BEFORE" "$AFTER" 2>/dev/null; then
+                from="$BEFORE"
+              else
+                # A new branch, or a force push whose "before" isn't in the new history: lint the tip only. Empty
+                # for a root commit.
+                from=$(git rev-parse --verify -q "$AFTER~1" || true)
+              fi
+              ;;
+          esac
           echo "from=$from" >> "$GITHUB_OUTPUT"
-          echo "to=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "to=$to" >> "$GITHUB_OUTPUT"
 
-      - name: Lint commit messages
+      - name: Lint the PR title
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$TITLE" | $COMMITLINT --verbose
+
+      - name: Lint the commits
         env:
           FROM: ${{ steps.range.outputs.from }}
           TO: ${{ steps.range.outputs.to }}
         run: |
-          if [ -n "$FROM" ]; then npx commitlint --from "$FROM" --to "$TO" --verbose
-          else git log -1 --format=%B "$TO" | npx commitlint --verbose; fi
+          set -euo pipefail
+          if [ -n "$FROM" ]; then $COMMITLINT --from "$FROM" --to "$TO" --verbose
+          else git log -1 --format=%B "$TO" | $COMMITLINT --verbose; fi

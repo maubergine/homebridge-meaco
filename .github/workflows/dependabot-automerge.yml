@@ -1,5 +1,8 @@
-# Approves Dependabot's minor and patch updates and turns on auto-merge. The ruleset still holds the merge until the
-# required checks (test, commitlint) pass. Major updates, and everyone else's PRs, wait for a review.
+# Patching should cost nobody any time. For Dependabot's minor and patch updates (single or grouped, libraries,
+# containers and Actions alike) this approves the PR and turns on auto-merge. The default-branch ruleset still holds
+# the merge (and the merge queue still tests it on top of main) until every required check passes.
+# Actions updates change workflow files, so they also wait for the workflow reviewers. Major updates wait for a
+# person. Nobody else's PRs are touched.
 name: Dependabot auto-merge
 
 on: pull_request
@@ -9,8 +12,10 @@ permissions:
 
 jobs:
   automerge:
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    # Both: the PR is Dependabot's, and this run was triggered by Dependabot (not by someone pushing to its branch).
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
       pull-requests: write
@@ -27,3 +32,10 @@ jobs:
         run: |
           gh pr review --approve "$PR"
           gh pr merge --auto --squash "$PR"
+
+      - name: Leave majors for a person
+        if: steps.meta.outputs.update-type == 'version-update:semver-major'
+        env:
+          DEPS: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          echo "::notice::Major update ($DEPS): needs a human review."

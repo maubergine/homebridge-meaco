@@ -1,63 +1,228 @@
 name: Release
 
-# After CI passes on main: semantic-release works out from the commit messages whether to release, then commits the
-# version and CHANGELOG.md and tags v<version>, and @semantic-release/npm publishes to npm over OIDC. It pushes with the release GitHub App's token, the bypass actor on the
-# default branch and tag rulesets.
+# Every release ships artefacts. Release tool: semantic-release (commit). Release mode: automatic.
+# trunk-release: semantic-release automatic commit
+#
+# 1. On every push to main, the plan job looks for releasable commits since the last v* tag (feat, fix,
+#    perf, revert, or a breaking change). With none, nothing else runs.
+#    Automatic release mode: no one approves. Every `fix` and `feat` (Dependabot's `fix(deps)` included)
+#    becomes a release without anyone acting.
+# 2. semantic-release works out the next version from the Conventional Commit titles, writes it into the
+#    project's version files and CHANGELOG.md, commits them to main as `chore(release): <version> [skip ci]`,
+#    tags that commit v<version> and creates a *draft* GitHub release with the release notes.
+# 3. The artefacts job builds from the tag, writes SHA256SUMS, attests build provenance and uploads it all to the draft.
+# 4. The publish job publishes the release only once every artefact job has succeeded. With immutable releases on,
+#    nothing can be added or changed after that.
+#
+# Alongside the GitHub release, the npm job publishes the same tarball to npm (OIDC trusted publishing, with
+# provenance), as the old semantic-release setup did.
+#
+# The release commit and tag are pushed, and the draft release created, with a short-lived token from the release
+# GitHub App (RELEASE_APP_PRIVATE_KEY and the RELEASE_APP_CLIENT_ID variable in the `release` environment), the bypass
+# actor on the main and tag rulesets: release commits skip review, the merge queue and commit signing. The token is
+# minted after `npm ci --ignore-scripts` and handed to the semantic-release step only; no credential is persisted.
 
 on:
-  workflow_run:
-    workflows: [CI]
+  push:
     branches: [main]
-    types: [completed]
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  plan:
+    if: github.repository == 'maubergine/homebridge-meaco'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      due: ${{ steps.plan.outputs.due }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # every tag, and the commits since the last one
+          persist-credentials: false
+
+      - name: Look for releasable commits since the last release
+        id: plan
+        run: |
+          set -euo pipefail
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          if git log --format='%s%n%b' "${last:+$last..}HEAD" \
+              | grep -qE '^(feat|fix|perf|revert)(\([^)]*\))?!?: |^BREAKING[ -]CHANGE: '; then
+            echo "due=true" >> "$GITHUB_OUTPUT"
+            echo "Releasable commits since ${last:-the first commit}."
+          else
+            echo "due=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing to release since ${last:-the first commit}."
+          fi
+
   release:
-    if: >-
-      github.repository == 'maubergine/homebridge-meaco' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push'
+    needs: plan
+    if: needs.plan.outputs.due == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    concurrency:
-      group: semantic-release
-      cancel-in-progress: false
     environment: release
     permissions:
-      contents: read
-      id-token: write # npm trusted publishing (OIDC) and provenance
+      contents: read # the write credential is the release App's short-lived token, minted just before it's needed
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false # nothing is left on disk; only the semantic-release step gets a token
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      # Tooling comes from the committed lockfile, with no install scripts, before any credential exists.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
       - name: Create release app token
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          permission-contents: write
-          permission-issues: write
-          permission-pull-requests: write
+          permission-contents: write # push the release commit and tag, create the draft release
 
-      - name: Checkout
+      - name: Tag and draft the release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          before=$(git tag --points-at HEAD --list 'v[0-9]*')
+          # Config in .releaserc.json; semantic-release and its plugins are devDependencies.
+          npx --no-install semantic-release
+          tag=$(git tag --points-at HEAD --list 'v[0-9]*' | head -n 1)
+          if [ -n "$tag" ] && [ -z "$before" ]; then
+            { echo "release_created=true"; echo "tag_name=$tag"; echo "version=${tag#v}"; } >> "$GITHUB_OUTPUT"
+          else
+            echo "release_created=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  artefacts:
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # upload to the draft release
+      id-token: write # build provenance
+      attestations: write
+    env:
+      TAG: ${{ needs.release.outputs.tag_name }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Checkout the release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
-          persist-credentials: true
+          ref: ${{ needs.release.outputs.tag_name }}
+          persist-credentials: false
+
+      # Build steps: leave every file to ship in dist/. No dependency cache in release jobs: a cache written by any
+      # branch's run could be restored here.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          package-manager-cache: false
+
+      - name: Build the package
+        run: |
+          set -euo pipefail
+          npm ci
+          # The version comes from the tag (a no-op when package.json already has it).
+          npm version --no-git-tag-version --allow-same-version "$VERSION"
+          npm run build
+          # Pack outside dist/ (the build output, which the package ships), then collect the tarball in dist/.
+          npm pack --pack-destination "$RUNNER_TEMP"
+          rm -rf dist
+          mkdir dist
+          mv "$RUNNER_TEMP"/*.tgz dist/
+
+      - name: Write SHA256SUMS
+        run: |
+          set -euo pipefail
+          test -n "$(ls -A dist 2>/dev/null)" || { echo "::error::Build left nothing in dist/: a release must ship artefacts."; exit 1; }
+          cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - name: Keep the tarball for the npm job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dist
+          path: dist/
+          retention-days: 1
+
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" dist/* --clobber
+
+  # Publishes the tarball the artefacts job built and attested to npm, over OIDC trusted publishing (no token). The
+  # trusted publisher on npmjs.com names this workflow file (release.yml) and the `release` environment.
+  npm:
+    needs: [release, artefacts]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    steps:
+      - name: Download the attested tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-dist
+          path: dist
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: lts/*
-          # No dependency cache where secrets are in reach: a cache written by another run could be restored here.
+          node-version: "24.11.0" # bundles npm 11.6.1; trusted publishing needs npm 11.5.1 or later
           package-manager-cache: false
           registry-url: https://registry.npmjs.org
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Verify and publish to npm
+        run: |
+          set -euo pipefail
+          cd dist
+          grep -F '.tgz' SHA256SUMS | sha256sum --check -
+          v=$(npm --version)
+          [ "$(printf '%s\n' 11.5.1 "$v" | sort -V | head -n 1)" = 11.5.1 ] || { echo "::error::npm $v is too old for trusted publishing"; exit 1; }
+          npm publish ./*.tgz --provenance --access public
 
-      - name: Run semantic-release
+  publish:
+    needs: [release, artefacts, npm]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the release
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: npx semantic-release
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release.outputs.tag_name }}
+        run: gh release edit "$TAG" --draft=false --latest

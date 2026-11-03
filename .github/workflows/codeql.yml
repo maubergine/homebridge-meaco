@@ -1,13 +1,16 @@
 name: CodeQL
 
-# Code scanning (advanced setup; the repository's default setup is off). It scans the TypeScript source and the workflows.
+# Code scanning, advanced setup (the repository's default setup is turned off so the two don't both run).
+# No merge_group: CodeQL isn't a required check, and uploads from merge-queue runs fail. Pull requests and pushes to
+# main cover the code that lands.
+# Scans the workflows and the repository's languages.
 
 on:
   push:
     branches: [main]
   pull_request:
   schedule:
-    - cron: "0 4 * * 1"
+    - cron: "47 5 * * 1"
 
 permissions:
   contents: read
@@ -19,9 +22,10 @@ concurrency:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
+      actions: read # the workflow run's details, for the upload
       contents: read
       security-events: write
     strategy:
@@ -29,11 +33,14 @@ jobs:
       matrix:
         # Each entry: a CodeQL language and its build mode. `none` for actions, javascript-typescript, python, ruby,
         # java-kotlin (Java only), csharp, rust; `autobuild` or `manual` for c-cpp, go, swift and Kotlin.
+        # Swift runs on macOS; everything else on Ubuntu.
         include:
           - language: actions
             build-mode: none
+            runner: ubuntu-latest
           - language: javascript-typescript
             build-mode: none
+            runner: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

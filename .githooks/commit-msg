@@ -1,10 +1,13 @@
 #!/bin/sh
-# Lints the commit message with the same rules as CI (commitlint.yml). Turned on by `npm install` (the "prepare"
-# script sets core.hooksPath).
+# Optional local check with the same rules as CI (commitlint.config.cjs, .github/workflows/commitlint.yml). Turn it on
+# once per clone:
+#   git config core.hooksPath .githooks
+# Needs Node for npx. Without it the hook skips: CI checks every commit anyway.
+if ! command -v npx >/dev/null 2>&1; then
+  echo "commit-msg: npx not found, skipping commitlint (CI still checks)." >&2
+  exit 0
+fi
 msg=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 cd "$(git rev-parse --show-toplevel)" || exit 1
-if [ ! -x node_modules/.bin/commitlint ]; then
-  echo "commit-msg: commitlint isn't installed. Run npm install." >&2
-  exit 1
-fi
-exec node_modules/.bin/commitlint --edit "$msg"
+exec npx --yes -p @commitlint/cli@21.2.4 -p @commitlint/config-conventional@21.2.4 \
+  commitlint --edit "$msg"

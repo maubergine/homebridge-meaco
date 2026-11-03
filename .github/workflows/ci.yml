@@ -1,9 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
+  merge_group:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -41,6 +42,13 @@ jobs:
   # The required status check: passes once every Node version has built and tested.
   test:
     needs: build
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BUILD_RESULT: ${{ needs.build.result }}
     steps:
-      - run: echo "lint, typecheck, tests and build passed on every Node version"
+      - name: Require every Node version to have passed
+        run: |
+          echo "build: $BUILD_RESULT"
+          test "$BUILD_RESULT" = success
