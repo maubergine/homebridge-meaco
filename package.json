@@ -66,7 +66,7 @@
     "homebridge-ui"
   ],
   "dependencies": {
-    "@homebridge/plugin-ui-utils": "^2.2.6",
+    "@homebridge/plugin-ui-utils": "^2.2.7",
     "ws": "^8.22.1"
   }
 }
