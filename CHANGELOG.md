@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.3](https://github.com/maubergine/homebridge-meaco/compare/v1.3.2...v1.3.3) (2026-11-16)
+
+### Bug Fixes
+
+* **deps:** bump @homebridge/plugin-ui-utils from 2.2.6 to 2.2.7 in the production group ([#100](https://github.com/maubergine/homebridge-meaco/issues/100)) ([f8cd27d](https://github.com/maubergine/homebridge-meaco/commit/f8cd27daa5691945464e01d38d9abb38155a859c))
+* **deps:** bump the production group with 2 updates ([#104](https://github.com/maubergine/homebridge-meaco/issues/104)) ([85d7653](https://github.com/maubergine/homebridge-meaco/commit/85d7653eb4679e47500b8e663182147618b42f22))
+
+
+📦 Published to npm: [homebridge-meaco@1.3.3](https://www.npmjs.com/package/homebridge-meaco/v/1.3.3)
+
 ## [1.3.2](https://github.com/maubergine/homebridge-meaco/compare/v1.3.1...v1.3.2) (2026-11-03)
 
 ### Bug Fixes
