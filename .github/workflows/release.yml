@@ -3,8 +3,8 @@ name: Release
 # Every release ships artefacts. Release tool: semantic-release (commit). Release mode: automatic.
 # trunk-release: semantic-release automatic commit
 #
-# 1. On every push to main, the plan job looks for releasable commits since the last v* tag (feat, fix,
-#    perf, revert, or a breaking change). With none, nothing else runs.
+# 1. On every push to main (and daily, and on demand), the plan job looks for releasable commits since the last v*
+#    tag (feat, fix, perf, revert, or a breaking change). With none, nothing else runs.
 #    Automatic release mode: no one approves. Every `fix` and `feat` (Dependabot's `fix(deps)` included)
 #    becomes a release without anyone acting.
 # 2. semantic-release works out the next version from the Conventional Commit titles, writes it into the
@@ -25,6 +25,11 @@ name: Release
 on:
   push:
     branches: [main]
+  # Dependabot PRs are merged by auto-merge with GITHUB_TOKEN, whose pushes trigger no workflows. The daily run
+  # picks those up; the plan job makes it a no-op when nothing is releasable.
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -52,8 +57,9 @@ jobs:
         run: |
           set -euo pipefail
           last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
-          if git log --format='%s%n%b' "${last:+$last..}HEAD" \
-              | grep -qE '^(feat|fix|perf|revert)(\([^)]*\))?!?: |^BREAKING[ -]CHANGE: '; then
+          # Not `grep -q`: it exits on the first match, git log gets SIGPIPE and pipefail fails the test.
+          log=$(git log --format='%s%n%b' "${last:+$last..}HEAD")
+          if grep -qE '^(feat|fix|perf|revert)(\([^)]*\))?!?: |^BREAKING[ -]CHANGE: ' <<<"$log"; then
             echo "due=true" >> "$GITHUB_OUTPUT"
             echo "Releasable commits since ${last:-the first commit}."
           else
