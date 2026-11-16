@@ -20,7 +20,8 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "V=${nextRelease.version} node -e \"const fs=require('fs');for(const f of process.argv.slice(1)){const j=JSON.parse(fs.readFileSync(f,'utf8'));j.version=process.env.V;if(j.packages&&j.packages['']){j.packages[''].version=process.env.V}fs.writeFileSync(f,JSON.stringify(j,null,2)+'\\n')}\" package.json package-lock.json"
+        "prepareCmd": "V=${nextRelease.version} node -e \"const fs=require('fs');for(const f of process.argv.slice(1)){const j=JSON.parse(fs.readFileSync(f,'utf8'));j.version=process.env.V;if(j.packages&&j.packages['']){j.packages[''].version=process.env.V}fs.writeFileSync(f,JSON.stringify(j,null,2)+'\\n')}\" package.json package-lock.json",
+        "generateNotesCmd": "echo \"📦 Published to npm: [homebridge-meaco@${nextRelease.version}](https://www.npmjs.com/package/homebridge-meaco/v/${nextRelease.version})\""
       }
     ],
     [

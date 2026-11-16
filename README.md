@@ -37,6 +37,9 @@ npm install -g homebridge-meaco
 
 Or install via the Homebridge UI by searching for `homebridge-meaco`.
 
+The package is published on npm at
+[npmjs.com/package/homebridge-meaco](https://www.npmjs.com/package/homebridge-meaco).
+
 If you haven't already done so, you will need to create a [Tuya IoT Cloud](https://iot.tuya.com/) account and create a cloud project
 containing your device(s). Your cloud project will have an access key and a secret key, and your device will be given a virtual device id.
 You will need these three values in order to configure this plugin. The TuyAPI project has [some good instructions](https://github.com/codetheweb/tuyapi/blob/master/docs/SETUP.md#listing-tuya-devices-from-the-tuya-smart-or-smart-life-apps) on how to set this all up. Note that this may require that you
