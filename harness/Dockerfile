@@ -3,4 +3,4 @@
 # moves the digest when the `synology` tag is republished.
 #
 # The digest below is synology-2026-10-16.
-FROM homebridge/homebridge:synology@sha256:d204897a168714627a9229578232c08eb614f2fa72f6534ae099981033785c4f
+FROM homebridge/homebridge:synology@sha256:3312fe85b785abd3f84c600a0250f99b72691103b732b9a580364f09c6029a0a
