@@ -89,7 +89,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .nvmrc # semantic-release 26 needs Node >=26.13
           package-manager-cache: false
 
       # Tooling comes from the committed lockfile, with no install scripts, before any credential exists.
@@ -144,7 +144,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version-file: package.json
+          node-version-file: .nvmrc
           package-manager-cache: false
 
       - name: Build the package
@@ -205,7 +205,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24.11.0" # bundles npm 11.6.1; trusted publishing needs npm 11.5.1 or later
+          node-version-file: .nvmrc # trusted publishing needs npm 11.5.1 or later (Node 26 bundles npm 11.20)
           package-manager-cache: false
           registry-url: https://registry.npmjs.org
 

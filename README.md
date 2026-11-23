@@ -228,7 +228,7 @@ watch without consuming (messages then redeliver every ~30s).
 
 The GitHub Actions workflow (`.github/workflows/ci.yml`) installs dependencies,
 lints, type-checks, tests, and builds the plugin across a matrix of Node.js
-versions (22.x, 24.x). You can reproduce that workflow on your own machine
+versions (22.x, 24.x, 26.x). You can reproduce that workflow on your own machine
 before pushing, using the `scripts/ci-local.sh` wrapper around
 [`act`](https://github.com/nektos/act).
 
@@ -237,10 +237,9 @@ It runs the exact same steps as GitHub (checkout, set up Node.js, `npm ci`,
 containers, one per matrix entry, so any failure you see locally matches what CI
 will report.
 
-The workflow runs in a local Docker image built from `ci-local.Dockerfile`,
-which extends the standard `act` runner with Node.js (the stock image has no
-`node` on PATH, which the checkout and setup-node actions need). The wrapper
-builds this image automatically on first run.
+The workflow runs in `catthehacker/ubuntu:act-26.04`, matching the Ubuntu
+release GitHub's `ubuntu-latest` runs. The wrapper pulls the latest version of
+the image on every run.
 
 Requirements:
 
@@ -250,24 +249,21 @@ Requirements:
 Usage:
 
 ```bash
-# Run both matrix builds (22.x, 24.x) concurrently
+# Run all matrix builds (22.x, 24.x, 26.x) concurrently
 scripts/ci-local.sh
 
-# Run only the Node.js 24.x build
-scripts/ci-local.sh -v 24.x
+# Run only the Node.js 26.x build
+scripts/ci-local.sh -v 26.x
 
 # List the jobs without running them
 scripts/ci-local.sh -l
-
-# Rebuild the local runner image (e.g. after editing ci-local.Dockerfile)
-scripts/ci-local.sh -b
 
 # Pass extra flags straight through to act
 scripts/ci-local.sh -- --verbose
 ```
 
-The first run builds the runner image, which can take a minute or two. On Apple
-silicon the script automatically requests the `linux/amd64` image so the
+The first run downloads the runner image, which can take a few minutes. On
+Apple silicon the script automatically requests the `linux/amd64` image so the
 containers match GitHub's runners. Run `scripts/ci-local.sh -h` for the full
 list of options.
 
