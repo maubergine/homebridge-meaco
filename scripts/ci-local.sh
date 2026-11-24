@@ -23,7 +23,7 @@ RUNNER_IMAGE="catthehacker/ubuntu:act-26.04"
 
 # --- defaults --------------------------------------------------------------
 EVENT="pull_request"
-CONCURRENCY=2
+CONCURRENCY=3
 NODE_VERSION=""
 LIST_ONLY=0
 # Declared empty up front so the variable exists under `set -u`. Because an
@@ -47,14 +47,14 @@ Usage:
   scripts/ci-local.sh                 # run all matrix builds (22.x, 24.x, 26.x)
   scripts/ci-local.sh -v 26.x         # run only the Node.js 26.x build
   scripts/ci-local.sh -e push         # use the push event (default: pull_request)
-  scripts/ci-local.sh -c 1            # limit concurrent jobs (default: 2)
+  scripts/ci-local.sh -c 1            # limit concurrent jobs (default: 3)
   scripts/ci-local.sh -l              # list the jobs without running them
   scripts/ci-local.sh -- --verbose    # pass any extra args straight to act
 
 Options:
   -v, --version VERSION   restrict the matrix to a single Node.js version (e.g. 22.x)
   -e, --event   EVENT     act event trigger (default: pull_request)
-  -c, --concurrency N     maximum concurrent jobs (default: 2, must be a number)
+  -c, --concurrency N     maximum concurrent jobs (default: 3, must be a number)
   -l, --list              list jobs without running them
   -h, --help              show this help and exit
 
